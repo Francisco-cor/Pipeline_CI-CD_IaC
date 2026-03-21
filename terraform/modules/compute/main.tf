@@ -1,51 +1,51 @@
-# -----------------------------------------------------------------------------
 # modules/compute/main.tf
 #
-# Week 1 skeleton — creates the compute infrastructure scaffolding.
-# The actual Node.js application image does not exist yet; a placeholder
-# nginx container is used so the task definition is valid.
+# Week 2: Multi-container task definition + ECS Service
 #
-# Week 2 will:
-#   1. Build and push the real application image to ECR via GitHub Actions
-#   2. Register a new ECS task definition revision with the real image URI
-#   3. Create an ECS Service to run and maintain the desired task count
-#   4. (Optional) Add an ECS Service with a load balancer or use public IP
+# Containers in the task:
+#   1. migrations — init container (essential: false). Runs SQL migrations and exits.
+#      All other containers wait for this to exit 0 (dependsOn: SUCCESS condition).
+#   2. nginx      — reverse proxy on port 80. Routes /api/X → svc-X:3001/2/3.
+#   3. productos  — Node.js service on port 3001
+#   4. ordenes    — Node.js service on port 3002
+#   5. stock      — Node.js service on port 3003
 #
-# Creates:
-#   1. ECR repository — stores application Docker images
-#   2. ECR lifecycle policy — keeps last 10 tagged images; removes untagged
-#   3. ECS cluster — with Container Insights enabled for CloudWatch metrics
-#   4. CloudWatch log group — 7-day retention (cost-conscious for dev)
-#   5. ECS task definition — FARGATE, 256 CPU / 512 MB, nginx placeholder
-# -----------------------------------------------------------------------------
+# Task sizing: 512 CPU (0.5 vCPU) / 1024 MB (1 GB)
+#   Within Fargate free tier: 750 vCPU-hours/month
+#   0.5 vCPU × 24h × 30d = 360 hours → well within free tier
+#
+# ECS Service: desired_count = 1, auto-scaling disabled, deployment_circuit_breaker enabled.
+# If the new task fails health checks within the grace period, ECS automatically
+# rolls back to the previous task definition revision. This is the rollback mechanism.
 
-# -----------------------------------------------------------------------------
-# ECR Repository
-# -----------------------------------------------------------------------------
-resource "aws_ecr_repository" "app" {
-  name = "${var.project_name}-app"
+# --- ECR Repositories (one per service) ---
 
-  # MUTABLE allows CI/CD to push new tags (e.g., latest, git SHA) to the same
-  # repository. Use IMMUTABLE in production to prevent tag overwriting.
+# ECR repos: one per service + nginx + migrations
+# Each service gets its own repository for independent image lifecycle management.
+# ECR free tier: 500 MB/month. Our images are ~150 MB total so we stay in free tier.
+
+locals {
+  services = ["productos", "ordenes", "stock", "nginx", "migrations"]
+}
+
+resource "aws_ecr_repository" "services" {
+  for_each = toset(local.services)
+
+  name                 = "${var.project_name}-${each.key}"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
-    # Scan on push detects OS and language-level vulnerabilities automatically.
-    # Results are visible in the ECR console and can be used to gate CI/CD.
     scan_on_push = true
   }
 
   tags = {
-    Name = "${var.project_name}-app"
+    Name = "${var.project_name}-${each.key}"
   }
 }
 
-# Lifecycle policy — prevents unbounded storage growth
-# Keeps the last 10 tagged images (preserves rollback capability) and deletes
-# untagged images after 1 day (untagged = intermediate build layers, build
-# cache layers pushed accidentally, etc.).
-resource "aws_ecr_lifecycle_policy" "app" {
-  repository = aws_ecr_repository.app.name
+resource "aws_ecr_lifecycle_policy" "services" {
+  for_each   = aws_ecr_repository.services
+  repository = each.value.name
 
   policy = jsonencode({
     rules = [
@@ -58,30 +58,25 @@ resource "aws_ecr_lifecycle_policy" "app" {
           countUnit   = "days"
           countNumber = 1
         }
-        action = {
-          type = "expire"
-        }
+        action = { type = "expire" }
       },
       {
         rulePriority = 2
-        description  = "Keep only the last 10 tagged images"
+        description  = "Keep last 10 tagged images for rollback capability"
         selection = {
-          tagStatus   = "tagged"
-          tagPrefixList = ["v", "sha-", "latest"]
-          countType   = "imageCountMoreThan"
-          countNumber = 10
+          tagStatus     = "tagged"
+          tagPrefixList = ["sha-", "v", "latest"]
+          countType     = "imageCountMoreThan"
+          countNumber   = 10
         }
-        action = {
-          type = "expire"
-        }
+        action = { type = "expire" }
       }
     ]
   })
 }
 
-# -----------------------------------------------------------------------------
-# ECS Cluster
-# -----------------------------------------------------------------------------
+# --- ECS Cluster ---
+
 resource "aws_ecs_cluster" "main" {
   name = "${var.project_name}-${var.environment}-cluster"
 
@@ -98,28 +93,20 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# Capacity providers — Fargate and Fargate Spot
-# FARGATE_SPOT can reduce compute costs by up to 70% for non-critical workloads
-# by running tasks on spare AWS capacity. Week 2 ECS service will configure the
-# capacity provider strategy (e.g., 80% Spot, 20% Fargate for resilience).
 resource "aws_ecs_cluster_capacity_providers" "main" {
   cluster_name = aws_ecs_cluster.main.name
 
   capacity_providers = ["FARGATE", "FARGATE_SPOT"]
 
   default_capacity_provider_strategy {
-    base              = 1       # Always keep at least 1 task on regular FARGATE
+    base              = 1
     weight            = 1
     capacity_provider = "FARGATE"
   }
 }
 
-# -----------------------------------------------------------------------------
-# CloudWatch Log Group
-#
-# 7-day retention: balances cost vs. debuggability.
-# For prod, increase to 30-90 days or export to S3 for long-term storage.
-# -----------------------------------------------------------------------------
+# --- CloudWatch Log Group ---
+
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${var.project_name}-${var.environment}"
   retention_in_days = 7
@@ -129,111 +116,211 @@ resource "aws_cloudwatch_log_group" "ecs" {
   }
 }
 
-# -----------------------------------------------------------------------------
-# ECS Task Definition (Week 1 placeholder)
-#
-# Uses nginx:alpine as a placeholder container. This allows the task definition
-# to be valid and deployable without the real application image.
-#
-# Week 2 CI/CD will:
-#   1. Build the real Node.js image and push it to ECR
-#   2. Run: aws ecs register-task-definition --cli-input-json file://task-def.json
-#   3. Run: aws ecs update-service to deploy the new revision
-#
-# Fargate resource sizing (minimum):
-#   CPU: 256 units (0.25 vCPU) — sufficient for a low-traffic portfolio app
-#   Memory: 512 MiB — minimum allowed for 256 CPU in Fargate
-#   See: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html
-#
-# Secrets injection:
-#   The `secrets` block in the container definition tells ECS to fetch the
-#   secret value from Secrets Manager and inject it as an environment variable
-#   BEFORE the container starts. The value never appears in the task definition
-#   JSON or in CloudWatch Logs.
-# -----------------------------------------------------------------------------
+# --- Multi-container Task Definition ---
+
+locals {
+  # ECR base URL used in container image references.
+  # deploy.sh pushes images with :sha-<git_sha> tags.
+  # The Terraform task definition uses :latest as a placeholder.
+  # CI/CD registers new task definition revisions with :sha-<git_sha> — never mutating
+  # the Terraform-managed task definition.
+  ecr_base = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com"
+
+  # Common log configuration for all containers
+  log_config = {
+    logDriver = "awslogs"
+    options = {
+      "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
+      "awslogs-region"        = data.aws_region.current.name
+      "awslogs-stream-prefix" = "ecs"
+    }
+  }
+}
+
+data "aws_region" "current" {}
+data "aws_caller_identity" "current" {}
+
 resource "aws_ecs_task_definition" "app" {
   family                   = "${var.project_name}-${var.environment}-app"
   requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc" # Required for Fargate; each task gets its own ENI
+  network_mode             = "awsvpc"
 
-  cpu    = 256  # 0.25 vCPU
-  memory = 512  # MiB
+  # 0.5 vCPU / 1 GB — fits all 5 containers within free tier
+  cpu    = 512
+  memory = 1024
 
-  # ECS uses the execution role to pull the image and inject secrets
   execution_role_arn = var.task_execution_role_arn
+  task_role_arn      = var.task_role_arn
 
-  # The application container assumes this role for any AWS SDK calls
-  task_role_arn = var.task_role_arn
-
-  # Container definitions — JSON encoded from HCL for readability
   container_definitions = jsonencode([
+    # -------------------------------------------------------------------------
+    # Container 1: migrations (init container)
+    #
+    # essential = false: ECS does not restart this container when it exits.
+    # Exit 0 → condition "SUCCESS" → other containers start.
+    # Exit non-0 → condition "SUCCESS" not met → task fails → circuit breaker fires.
+    # This guarantees: never a service running with an outdated schema.
+    # -------------------------------------------------------------------------
     {
-      name  = "${var.project_name}-app"
-      # Placeholder image — replaced by CI/CD in Week 2 with the real app image
-      # from ECR: <account>.dkr.ecr.<region>.amazonaws.com/<project>-app:<sha>
-      image = "nginx:alpine"
+      name      = "migrations"
+      image     = "${local.ecr_base}/${var.project_name}-migrations:latest"
+      essential = false  # Exits after running — task continues if exit code is 0
 
-      essential = true # If this container stops, the task stops
+      secrets = [
+        { name = "DATABASE_URL", valueFrom = var.db_secret_arn }
+      ]
+
+      environment = [
+        { name = "NODE_ENV", value = var.environment }
+      ]
+
+      logConfiguration = local.log_config
+    },
+
+    # -------------------------------------------------------------------------
+    # Container 2: nginx (reverse proxy — replaces ALB, see ADR-001)
+    #
+    # Listens on port 80. Routes:
+    #   /api/productos/* → localhost:3001
+    #   /api/ordenes/*   → localhost:3002
+    #   /api/stock/*     → localhost:3003
+    #   /health          → 200 (nginx health check for ECS)
+    #
+    # dependsOn migrations with condition SUCCESS — nginx doesn't start until
+    # migrations have run, preventing requests before schema is ready.
+    # -------------------------------------------------------------------------
+    {
+      name      = "nginx"
+      image     = "${local.ecr_base}/${var.project_name}-nginx:latest"
+      essential = true
+
+      dependsOn = [
+        { containerName = "migrations", condition = "SUCCESS" }
+      ]
 
       portMappings = [
-        {
-          # nginx listens on 80; Week 2 will change this to var.app_port (3000)
-          # when the real app image replaces the placeholder
-          containerPort = 80
-          hostPort      = 80
-          protocol      = "tcp"
-        }
+        { containerPort = 80, hostPort = 80, protocol = "tcp" }
       ]
 
-      # Secrets are fetched from Secrets Manager at container start and injected
-      # as environment variables. The actual secret values never appear in the
-      # task definition or deployment logs.
-      secrets = [
-        {
-          name      = "DATABASE_URL"
-          valueFrom = var.db_secret_arn
-        },
-        {
-          name      = "REDIS_URL"
-          valueFrom = var.redis_secret_arn
-        },
-        {
-          name      = "APP_SECRET"
-          valueFrom = var.app_secret_arn
-        }
-      ]
-
-      # Non-sensitive runtime configuration (safe to have in task definition)
-      environment = [
-        {
-          name  = "NODE_ENV"
-          value = var.environment
-        },
-        {
-          name  = "PORT"
-          value = tostring(var.app_port)
-        }
-      ]
-
-      # Send all container stdout/stderr to CloudWatch Logs
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
-          "awslogs-region"        = data.aws_region.current.name
-          "awslogs-stream-prefix" = "app"
-        }
-      }
-
-      # Health check — nginx serves a 200 on / by default
-      # Week 2: replace with the real app's health endpoint (e.g., /health)
       healthCheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost/ || exit 1"]
+        command     = ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
         interval    = 30
         timeout     = 5
         retries     = 3
-        startPeriod = 60 # Grace period for app startup
+        startPeriod = 60
       }
+
+      logConfiguration = merge(local.log_config, {
+        options = merge(local.log_config.options, { "awslogs-stream-prefix" = "nginx" })
+      })
+    },
+
+    # -------------------------------------------------------------------------
+    # Container 3: svc-productos (Node.js, port 3001)
+    # -------------------------------------------------------------------------
+    {
+      name      = "svc-productos"
+      image     = "${local.ecr_base}/${var.project_name}-productos:latest"
+      essential = true
+
+      dependsOn = [
+        { containerName = "migrations", condition = "SUCCESS" }
+      ]
+
+      environment = [
+        { name = "NODE_ENV",     value = var.environment },
+        { name = "PORT",         value = "3001" },
+        { name = "SERVICE_NAME", value = "svc-productos" }
+      ]
+
+      secrets = [
+        { name = "DATABASE_URL", valueFrom = var.db_secret_arn },
+        { name = "APP_SECRET",   valueFrom = var.app_secret_arn }
+      ]
+
+      healthCheck = {
+        command     = ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+
+      logConfiguration = merge(local.log_config, {
+        options = merge(local.log_config.options, { "awslogs-stream-prefix" = "productos" })
+      })
+    },
+
+    # -------------------------------------------------------------------------
+    # Container 4: svc-ordenes (Node.js, port 3002)
+    # -------------------------------------------------------------------------
+    {
+      name      = "svc-ordenes"
+      image     = "${local.ecr_base}/${var.project_name}-ordenes:latest"
+      essential = true
+
+      dependsOn = [
+        { containerName = "migrations", condition = "SUCCESS" }
+      ]
+
+      environment = [
+        { name = "NODE_ENV",     value = var.environment },
+        { name = "PORT",         value = "3002" },
+        { name = "SERVICE_NAME", value = "svc-ordenes" }
+      ]
+
+      secrets = [
+        { name = "DATABASE_URL", valueFrom = var.db_secret_arn },
+        { name = "APP_SECRET",   valueFrom = var.app_secret_arn }
+      ]
+
+      healthCheck = {
+        command     = ["CMD-SHELL", "wget -qO- http://localhost:3002/health || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+
+      logConfiguration = merge(local.log_config, {
+        options = merge(local.log_config.options, { "awslogs-stream-prefix" = "ordenes" })
+      })
+    },
+
+    # -------------------------------------------------------------------------
+    # Container 5: svc-stock (Node.js, port 3003)
+    # -------------------------------------------------------------------------
+    {
+      name      = "svc-stock"
+      image     = "${local.ecr_base}/${var.project_name}-stock:latest"
+      essential = true
+
+      dependsOn = [
+        { containerName = "migrations", condition = "SUCCESS" }
+      ]
+
+      environment = [
+        { name = "NODE_ENV",     value = var.environment },
+        { name = "PORT",         value = "3003" },
+        { name = "SERVICE_NAME", value = "svc-stock" }
+      ]
+
+      secrets = [
+        { name = "DATABASE_URL", valueFrom = var.db_secret_arn },
+        { name = "APP_SECRET",   valueFrom = var.app_secret_arn }
+      ]
+
+      healthCheck = {
+        command     = ["CMD-SHELL", "wget -qO- http://localhost:3003/health || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+
+      logConfiguration = merge(local.log_config, {
+        options = merge(local.log_config.options, { "awslogs-stream-prefix" = "stock" })
+      })
     }
   ])
 
@@ -242,5 +329,102 @@ resource "aws_ecs_task_definition" "app" {
   }
 }
 
-# Data source: current AWS region (used in the awslogs-region log option)
-data "aws_region" "current" {}
+# --- ECS Service ---
+#
+# desired_count = 1: single task for free tier.
+# To scale: change desired_count and enable the auto-scaling block below.
+#
+# deployment_circuit_breaker: ECS tracks the rolling deployment.
+# If the new task fails health checks after health_check_grace_period_seconds,
+# ECS marks the task as unhealthy. After `failure_threshold` consecutive failures,
+# the circuit breaker fires and ECS rolls back to the PREVIOUS task definition
+# revision automatically. No script needed — this IS the rollback mechanism.
+#
+# lifecycle ignore_changes: Terraform manages the service configuration but NOT
+# which task definition revision is running. CI/CD (deploy.sh / GitHub Actions)
+# registers new revisions and updates the service. Without this, `terraform apply`
+# would revert the service back to the Terraform-managed revision on every run.
+
+resource "aws_ecs_service" "app" {
+  name            = "${var.project_name}-${var.environment}-service"
+  cluster         = aws_ecs_cluster.main.arn
+  task_definition = aws_ecs_task_definition.app.arn
+
+  # Free tier: 1 task running.
+  # Interview answer: "To scale, change desired_count and enable the
+  # aws_appautoscaling_target block in modules/compute/main.tf (currently commented out)."
+  desired_count = 1
+
+  # Use regular FARGATE (not SPOT) for the single task — SPOT can be interrupted,
+  # which is unacceptable when desired_count = 1 (no redundancy).
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    weight            = 1
+    base              = 1
+  }
+
+  network_configuration {
+    subnets          = var.subnet_ids
+    security_groups  = [var.sg_app_id]
+    # assign_public_ip = true is REQUIRED because we use public subnets without
+    # a NAT Gateway. ECS needs the public IP to reach ECR and Secrets Manager.
+    # See ADR-001 for the cost/security trade-off decision.
+    assign_public_ip = true
+  }
+
+  # The rollback mechanism.
+  # If the new task doesn't pass health checks within health_check_grace_period_seconds,
+  # ECS marks the deployment as failed and reverts to the previous task definition.
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true   # This is the automatic rollback — no script, ECS handles it
+  }
+
+  deployment_controller {
+    type = "ECS"  # Rolling deployment. Blue/green would use CODE_DEPLOY.
+  }
+
+  # Grace period: time ECS waits before starting health check evaluation.
+  # 60s covers: container startup + migrations + DB connection pool warmup.
+  health_check_grace_period_seconds = 60
+
+  lifecycle {
+    # CI/CD updates task_definition — don't let terraform apply revert it.
+    # Also ignore desired_count — allows manual scaling without Terraform drift.
+    ignore_changes = [task_definition, desired_count]
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-service"
+  }
+
+  depends_on = [aws_ecs_cluster.main]
+}
+
+# --- Auto-scaling (DISABLED for free tier) ---
+#
+# Uncomment to enable. In an interview: "Auto-scaling is already designed in.
+# To activate: uncomment this block and set desired_count = 2 minimum."
+#
+# resource "aws_appautoscaling_target" "ecs_service" {
+#   max_capacity       = 4
+#   min_capacity       = 1
+#   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.app.name}"
+#   scalable_dimension = "ecs:service:DesiredCount"
+#   service_namespace  = "ecs"
+# }
+#
+# resource "aws_appautoscaling_policy" "cpu" {
+#   name               = "${var.project_name}-${var.environment}-cpu-scaling"
+#   policy_type        = "TargetTrackingScaling"
+#   resource_id        = aws_appautoscaling_target.ecs_service.resource_id
+#   scalable_dimension = aws_appautoscaling_target.ecs_service.scalable_dimension
+#   service_namespace  = aws_appautoscaling_target.ecs_service.service_namespace
+#
+#   target_tracking_scaling_policy_configuration {
+#     target_value       = 70.0
+#     predefined_metric_specification {
+#       predefined_metric_type = "ECSServiceAverageCPUUtilization"
+#     }
+#   }
+# }
