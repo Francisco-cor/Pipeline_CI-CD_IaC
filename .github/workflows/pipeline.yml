@@ -1,0 +1,189 @@
+# =============================================================================
+# CI/CD Pipeline: lint → test → build → deploy
+#
+# Triggers:
+#   - push to main         → full pipeline (lint + test + build + deploy)
+#   - pull_request to main → lint + test only (no build, no deploy)
+#
+# Auth: GitHub Actions assumes an AWS IAM role via OIDC.
+# Zero long-lived credentials stored in GitHub secrets.
+# The role is created by terraform/cicd.tf.
+# After terraform apply, copy the output github_actions_role_arn to
+# the GitHub repo secret named AWS_ROLE_ARN.
+#
+# Required GitHub secrets:
+#   AWS_ROLE_ARN — ARN of the IAM role created by Terraform (cicd.tf output)
+# =============================================================================
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION:    us-east-1
+  PROJECT_NAME:  erp-pipeline
+  ENVIRONMENT:   dev
+  NODE_VERSION:  "20"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Lint
+  # Run ESLint on all three services. Fails fast — no point testing broken code.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Lint svc-productos
+        run: npm install --silent && npm run lint
+        working-directory: services/productos
+
+      - name: Lint svc-ordenes
+        run: npm install --silent && npm run lint
+        working-directory: services/ordenes
+
+      - name: Lint svc-stock
+        run: npm install --silent && npm run lint
+        working-directory: services/stock
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Test
+  # Jest integration tests run against a real PostgreSQL service container.
+  # Migrations are applied before the test suites so all DB objects exist.
+  # DB-dependent tests (health, CRUD) pass only when the DB is healthy.
+  # A deploy that breaks /health will fail here before it ever reaches AWS.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test
+    needs: lint
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB:       erpdb
+          POSTGRES_USER:     erpadmin
+          POSTGRES_PASSWORD: test_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://erpadmin:test_password@localhost:5432/erpdb
+      NODE_ENV:     test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run database migrations
+        run: npm install --silent && node run.js
+        working-directory: migrations
+
+      - name: Test svc-productos
+        run: npm install --silent && npm test
+        working-directory: services/productos
+
+      - name: Test svc-ordenes
+        run: npm install --silent && npm test
+        working-directory: services/ordenes
+
+      - name: Test svc-stock
+        run: npm install --silent && npm test
+        working-directory: services/stock
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Build
+  # Build Docker images and push to ECR. Only runs on push to main (not PRs).
+  # Uses OIDC — no AWS access keys stored anywhere.
+  # Outputs the image tag so the deploy job knows which revision to roll out.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build & Push to ECR
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write   # Required for OIDC token request
+      contents: read
+
+    outputs:
+      image_tag: ${{ steps.tag.outputs.value }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image tag
+        id: tag
+        run: echo "value=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push all images
+        run: |
+          chmod +x scripts/build.sh
+          GIT_SHA=$(git rev-parse --short HEAD) bash scripts/build.sh
+        env:
+          AWS_REGION:    ${{ env.AWS_REGION }}
+          PROJECT_NAME:  ${{ env.PROJECT_NAME }}
+
+  # ---------------------------------------------------------------------------
+  # Job 4: Deploy
+  # Register a new ECS task definition revision (with the just-pushed image tag)
+  # and update the service. Waits for the deployment to stabilize.
+  # If health checks fail after deployment, ECS auto-rolls back (circuit breaker).
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to ECS
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to ECS
+        run: |
+          chmod +x scripts/deploy.sh
+          bash scripts/deploy.sh
+        env:
+          IMAGE_TAG:     ${{ needs.build.outputs.image_tag }}
+          AWS_REGION:    ${{ env.AWS_REGION }}
+          PROJECT_NAME:  ${{ env.PROJECT_NAME }}
+          ENVIRONMENT:   ${{ env.ENVIRONMENT }}

@@ -27,6 +27,11 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.5"
     }
+    tls = {
+      # Used by cicd.tf to fetch GitHub's OIDC certificate thumbprint
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 }
 

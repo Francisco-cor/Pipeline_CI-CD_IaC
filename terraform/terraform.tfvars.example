@@ -23,3 +23,11 @@ db_username = "erpadmin"
 #   aws secretsmanager get-secret-value --secret-id /erp/db-url
 
 app_port = 3000
+
+# GitHub repo in owner/name format — used to scope the OIDC trust policy.
+# Only this repository's workflows will be able to assume the GitHub Actions IAM role.
+github_repo = "your-github-username/Pipeline_CI-CD_IaC"
+
+# Email for CloudWatch alarm notifications (optional — leave empty to skip).
+# After terraform apply, confirm the subscription from your inbox.
+alert_email = ""

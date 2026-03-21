@@ -1,5 +1,8 @@
+'use strict';
+
 const express = require('express');
 const pool = require('./db');
+const logger = require('./logger');
 const healthRouter = require('./routes/health');
 const ordenesRouter = require('./routes/ordenes');
 
@@ -15,17 +18,17 @@ app.get('/', (req, res) => {
 app.use('/health', healthRouter);
 app.use('/ordenes', ordenesRouter);
 
-// Graceful shutdown for ECS SIGTERM
-// When ECS stops a task (deploy, scale-in, spot interruption), it sends SIGTERM
-// first. We finish in-flight requests, close the DB pool, then exit cleanly.
-// Without this, abrupt exits can leave DB connections open (exhausting the pool).
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, closing server...');
-  server.close(() => {
-    pool.end(() => process.exit(0));
-  });
-});
+module.exports = app;
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`svc-ordenes listening on port ${PORT}`);
-});
+if (require.main === module) {
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    logger.info(`svc-ordenes listening`, { port: PORT });
+  });
+
+  process.on('SIGTERM', () => {
+    logger.info('SIGTERM received, closing server');
+    server.close(() => {
+      pool.end(() => process.exit(0));
+    });
+  });
+}

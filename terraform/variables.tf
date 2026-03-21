@@ -45,3 +45,15 @@ variable "app_port" {
   type        = number
   default     = 3000
 }
+
+variable "github_repo" {
+  description = "GitHub repository in owner/name format (e.g. 'acme/erp-pipeline'). Used in the OIDC trust policy to scope which repository can assume the GitHub Actions IAM role."
+  type        = string
+  default     = ""
+}
+
+variable "alert_email" {
+  description = "Email address for CloudWatch alarm SNS notifications. Leave empty to create the SNS topic without a subscription (you can add one manually later). AWS sends a confirmation email that must be clicked before alerts are delivered."
+  type        = string
+  default     = ""
+}
