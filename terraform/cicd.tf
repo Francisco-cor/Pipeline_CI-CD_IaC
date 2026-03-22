@@ -94,18 +94,40 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
-  # ECS deployment actions — DescribeServices needed for wait services-stable
+  # RegisterTaskDefinition and DescribeTaskDefinition do not support resource-level
+  # permissions in AWS IAM — they must remain on "*".
   statement {
-    sid = "ECSDeploy"
+    sid = "ECSTaskDef"
+    actions = [
+      "ecs:RegisterTaskDefinition",
+      "ecs:DescribeTaskDefinition",
+    ]
+    resources = ["*"]
+  }
+
+  # Service and cluster actions support resource-level permissions — scope to
+  # this project's cluster and service only so the role cannot touch other ECS
+  # workloads in the same account.
+  statement {
+    sid = "ECSServiceDeploy"
     actions = [
       "ecs:DescribeServices",
-      "ecs:DescribeTaskDefinition",
-      "ecs:RegisterTaskDefinition",
       "ecs:UpdateService",
+    ]
+    resources = [
+      "arn:aws:ecs:${var.aws_region}:*:service/${var.project_name}-${var.environment}-cluster/${var.project_name}-${var.environment}-service",
+    ]
+  }
+
+  statement {
+    sid = "ECSClusterRead"
+    actions = [
       "ecs:DescribeTasks",
       "ecs:ListTasks",
     ]
-    resources = ["*"]
+    resources = [
+      "arn:aws:ecs:${var.aws_region}:*:cluster/${var.project_name}-${var.environment}-cluster",
+    ]
   }
 
   # PassRole is required when registering a task definition that references IAM roles.
