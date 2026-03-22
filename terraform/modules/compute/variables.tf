@@ -32,11 +32,6 @@ variable "redis_secret_arn" {
   type        = string
 }
 
-variable "app_secret_arn" {
-  description = "ARN of the Secrets Manager secret containing the application JWT secret (APP_SECRET)."
-  type        = string
-}
-
 variable "app_port" {
   description = "TCP port the Node.js application listens on inside the container."
   type        = number

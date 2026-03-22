@@ -9,7 +9,7 @@
 #
 # IAM principle of least privilege:
 #   The task execution role's inline policy grants secretsmanager:GetSecretValue
-#   ONLY on the specific 3 secret ARNs created here — NOT on "*". This means a
+#   ONLY on the specific secret ARNs created here — NOT on "*". This means a
 #   compromise of the ECS task execution role cannot read other secrets in the
 #   account.
 # -----------------------------------------------------------------------------
@@ -63,33 +63,6 @@ resource "aws_secretsmanager_secret_version" "redis_url" {
 }
 
 # -----------------------------------------------------------------------------
-# Secret: /erp/app-secret
-#
-# Placeholder for the application's JWT signing secret.
-# The initial value ("REPLACE_ME_BEFORE_DEPLOY") is intentionally invalid to
-# prevent accidental production use. Inject the real value:
-#   aws secretsmanager put-secret-value \
-#     --secret-id /${project_name}/${environment}/app-secret \
-#     --secret-string "$(openssl rand -base64 64)"
-# Or inject via CI/CD pipeline using a repository secret.
-# -----------------------------------------------------------------------------
-resource "aws_secretsmanager_secret" "app_secret" {
-  name        = "/${var.project_name}/${var.environment}/app-secret"
-  description = "JWT signing secret for the ${var.project_name} ${var.environment} application. Initial value is a placeholder — replace before deploying the application."
-
-  recovery_window_in_days = 0
-
-  tags = {
-    Name = "${var.project_name}-${var.environment}-app-secret"
-  }
-}
-
-resource "aws_secretsmanager_secret_version" "app_secret" {
-  secret_id     = aws_secretsmanager_secret.app_secret.id
-  secret_string = "REPLACE_ME_BEFORE_DEPLOY" # Replace via CI/CD or manually
-}
-
-# -----------------------------------------------------------------------------
 # IAM Role: ECS Task Execution Role
 #
 # ECS (the control plane) assumes this role to:
@@ -139,12 +112,11 @@ data "aws_iam_policy_document" "ecs_task_execution_secrets" {
       "secretsmanager:GetSecretValue",
     ]
 
-    # Explicitly enumerate the 3 secrets — NOT "arn:aws:secretsmanager:*:*:secret:*"
+    # Explicitly enumerate the secrets — NOT "arn:aws:secretsmanager:*:*:secret:*"
     # This ensures the execution role cannot read any other secrets in the account.
     resources = [
       aws_secretsmanager_secret.db_url.arn,
       aws_secretsmanager_secret.redis_url.arn,
-      aws_secretsmanager_secret.app_secret.arn,
     ]
   }
 }

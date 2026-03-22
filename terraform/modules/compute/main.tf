@@ -109,7 +109,7 @@ resource "aws_ecs_cluster_capacity_providers" "main" {
 
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${var.project_name}-${var.environment}"
-  retention_in_days = 7
+  retention_in_days = 30
 
   tags = {
     Name = "/ecs/${var.project_name}-${var.environment}"
@@ -207,7 +207,7 @@ resource "aws_ecs_task_definition" "app" {
         interval    = 30
         timeout     = 5
         retries     = 3
-        startPeriod = 60
+        startPeriod = 120
       }
 
       logConfiguration = merge(local.log_config, {
@@ -234,8 +234,7 @@ resource "aws_ecs_task_definition" "app" {
       ]
 
       secrets = [
-        { name = "DATABASE_URL", valueFrom = var.db_secret_arn },
-        { name = "APP_SECRET",   valueFrom = var.app_secret_arn }
+        { name = "DATABASE_URL", valueFrom = var.db_secret_arn }
       ]
 
       healthCheck = {
@@ -243,7 +242,7 @@ resource "aws_ecs_task_definition" "app" {
         interval    = 30
         timeout     = 5
         retries     = 3
-        startPeriod = 60
+        startPeriod = 120
       }
 
       logConfiguration = merge(local.log_config, {
@@ -270,8 +269,7 @@ resource "aws_ecs_task_definition" "app" {
       ]
 
       secrets = [
-        { name = "DATABASE_URL", valueFrom = var.db_secret_arn },
-        { name = "APP_SECRET",   valueFrom = var.app_secret_arn }
+        { name = "DATABASE_URL", valueFrom = var.db_secret_arn }
       ]
 
       healthCheck = {
@@ -279,7 +277,7 @@ resource "aws_ecs_task_definition" "app" {
         interval    = 30
         timeout     = 5
         retries     = 3
-        startPeriod = 60
+        startPeriod = 120
       }
 
       logConfiguration = merge(local.log_config, {
@@ -306,8 +304,7 @@ resource "aws_ecs_task_definition" "app" {
       ]
 
       secrets = [
-        { name = "DATABASE_URL", valueFrom = var.db_secret_arn },
-        { name = "APP_SECRET",   valueFrom = var.app_secret_arn }
+        { name = "DATABASE_URL", valueFrom = var.db_secret_arn }
       ]
 
       healthCheck = {
@@ -315,7 +312,7 @@ resource "aws_ecs_task_definition" "app" {
         interval    = 30
         timeout     = 5
         retries     = 3
-        startPeriod = 60
+        startPeriod = 120
       }
 
       logConfiguration = merge(local.log_config, {
@@ -385,8 +382,9 @@ resource "aws_ecs_service" "app" {
   }
 
   # Grace period: time ECS waits before starting health check evaluation.
-  # 60s covers: container startup + migrations + DB connection pool warmup.
-  health_check_grace_period_seconds = 60
+  # 120s covers: container startup + migrations + DB connection pool warmup,
+  # with margin for cold RDS starts that previously caused false rollbacks at 60s.
+  health_check_grace_period_seconds = 120
 
   lifecycle {
     # CI/CD updates task_definition — don't let terraform apply revert it.

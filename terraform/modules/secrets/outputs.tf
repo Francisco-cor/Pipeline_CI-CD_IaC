@@ -22,7 +22,3 @@ output "redis_secret_arn" {
   value       = aws_secretsmanager_secret.redis_url.arn
 }
 
-output "app_secret_arn" {
-  description = "ARN of the Secrets Manager secret that holds the application JWT secret. The initial value is a placeholder; inject the real value via CI/CD or manually before deploying the app."
-  value       = aws_secretsmanager_secret.app_secret.arn
-}

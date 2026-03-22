@@ -130,7 +130,6 @@ module "compute" {
   # environment variables at container startup (no secrets in task def JSON)
   db_secret_arn    = module.secrets.db_secret_arn
   redis_secret_arn = module.secrets.redis_secret_arn
-  app_secret_arn   = module.secrets.app_secret_arn
 
   # Networking — ECS tasks run in public subnets with public IPs (see ADR-001)
   subnet_ids = module.networking.public_subnet_ids
