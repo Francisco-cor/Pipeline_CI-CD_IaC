@@ -47,12 +47,13 @@ data "aws_iam_policy_document" "github_actions_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Scope to this specific GitHub repository only.
+    # Scope to this specific GitHub repository, main branch only.
+    # Wildcard (*) would allow any branch/tag/PR to assume this role and deploy.
     # var.github_repo format: "owner/repo-name"
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:*"]
+      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
     }
   }
 }

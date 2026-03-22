@@ -5,7 +5,7 @@ const pool = new Pool({
   // In ECS, the secret is injected before container start.
   // ssl: { rejectUnauthorized: false } needed for RDS with SSL.
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 5,              // small pool — free tier RDS has limited connections
+  max: 3,              // 3 services × 3 = 9 connections — leaves margin within RDS free-tier limit (~15)
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
 });

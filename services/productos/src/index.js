@@ -11,6 +11,20 @@ const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 
+// Log every request so CloudWatch has method/path/status/duration per entry.
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    logger.info('http_request', {
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      ms: Date.now() - start,
+    });
+  });
+  next();
+});
+
 // Routes
 app.get('/', (req, res) => {
   res.json({ service: 'svc-productos', version: process.env.APP_VERSION || 'dev', status: 'running' });
