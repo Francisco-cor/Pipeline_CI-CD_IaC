@@ -2,10 +2,9 @@
 # modules/secrets/main.tf
 #
 # Creates:
-#   1. Secrets Manager secrets for DB URL, Redis URL, and app JWT secret
-#   2. Secret versions with actual values (DB and Redis — built from RDS/Redis outputs)
-#   3. ECS Task Execution IAM Role (pulls images, reads secrets, writes logs)
-#   4. ECS Task IAM Role (the app itself — no permissions by default)
+#   1. Secrets Manager secret for DATABASE_URL (built from RDS outputs)
+#   2. ECS Task Execution IAM Role (pulls images, reads secrets, writes logs)
+#   3. ECS Task IAM Role (the app itself — no permissions by default)
 #
 # IAM principle of least privilege:
 #   The task execution role's inline policy grants secretsmanager:GetSecretValue
@@ -41,25 +40,6 @@ resource "aws_secretsmanager_secret_version" "db_url" {
   # The password comes from the database module's random_password resource.
   # Terraform marks this as sensitive in state due to var.rds_password.
   secret_string = "postgresql://${var.rds_username}:${var.rds_password}@${var.rds_endpoint}:${var.rds_port}/${var.rds_db_name}"
-}
-
-# -----------------------------------------------------------------------------
-# Secret: /erp/redis-url
-# -----------------------------------------------------------------------------
-resource "aws_secretsmanager_secret" "redis_url" {
-  name        = "/${var.project_name}/${var.environment}/redis-url"
-  description = "Redis connection string for the ${var.project_name} ${var.environment} environment. Injected as REDIS_URL."
-
-  recovery_window_in_days = 0
-
-  tags = {
-    Name = "${var.project_name}-${var.environment}-redis-url"
-  }
-}
-
-resource "aws_secretsmanager_secret_version" "redis_url" {
-  secret_id     = aws_secretsmanager_secret.redis_url.id
-  secret_string = "redis://${var.redis_endpoint}:${var.redis_port}"
 }
 
 # -----------------------------------------------------------------------------
@@ -116,7 +96,6 @@ data "aws_iam_policy_document" "ecs_task_execution_secrets" {
     # This ensures the execution role cannot read any other secrets in the account.
     resources = [
       aws_secretsmanager_secret.db_url.arn,
-      aws_secretsmanager_secret.redis_url.arn,
     ]
   }
 }

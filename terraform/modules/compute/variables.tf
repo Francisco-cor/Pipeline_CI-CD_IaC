@@ -27,11 +27,6 @@ variable "db_secret_arn" {
   type        = string
 }
 
-variable "redis_secret_arn" {
-  description = "ARN of the Secrets Manager secret containing the REDIS_URL."
-  type        = string
-}
-
 variable "app_port" {
   description = "TCP port the Node.js application listens on inside the container."
   type        = number

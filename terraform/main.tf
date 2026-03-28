@@ -4,7 +4,7 @@
 # Architecture overview (Week 1 — base infrastructure):
 #
 #   networking  →  VPC, subnets, IGW, route tables, security groups
-#   database    →  RDS PostgreSQL + ElastiCache Redis (+ random password)
+#   database    →  RDS PostgreSQL (+ random password)
 #   secrets     →  Secrets Manager secrets + IAM roles for ECS
 #   compute     →  ECR repository + ECS cluster + placeholder task definition
 #
@@ -66,7 +66,7 @@ module "networking" {
 
 # -----------------------------------------------------------------------------
 # Module: database
-# Creates RDS PostgreSQL and ElastiCache Redis.
+# Creates RDS PostgreSQL.
 # Uses networking outputs to place resources in the correct subnets/SGs.
 # -----------------------------------------------------------------------------
 module "database" {
@@ -77,13 +77,12 @@ module "database" {
   db_name      = var.db_name
   db_username  = var.db_username
 
-  # Security groups from networking module control inbound access
-  sg_db_id    = module.networking.sg_db_id
-  sg_redis_id = module.networking.sg_redis_id
+  # Security group from networking module controls inbound access
+  sg_db_id = module.networking.sg_db_id
 
-  # RDS and ElastiCache are placed in the same subnets as ECS tasks.
-  # sg_db / sg_redis ensure they are NOT reachable from the internet despite
-  # being in public subnets (see ADR-001).
+  # RDS is placed in the same subnets as ECS tasks.
+  # sg_db ensures RDS is NOT reachable from the internet despite
+  # being in a public subnet (see ADR-001).
   subnet_ids = module.networking.public_subnet_ids
 }
 
@@ -105,9 +104,6 @@ module "secrets" {
   rds_db_name  = module.database.rds_db_name
   rds_username = module.database.rds_username
   rds_password = module.database.rds_password
-
-  redis_endpoint = module.database.redis_endpoint
-  redis_port     = module.database.redis_port
 }
 
 # -----------------------------------------------------------------------------
@@ -126,10 +122,9 @@ module "compute" {
   task_execution_role_arn = module.secrets.task_execution_role_arn
   task_role_arn           = module.secrets.task_role_arn
 
-  # Secret ARNs — referenced in the task definition so ECS injects them as
-  # environment variables at container startup (no secrets in task def JSON)
-  db_secret_arn    = module.secrets.db_secret_arn
-  redis_secret_arn = module.secrets.redis_secret_arn
+  # Secret ARN — referenced in the task definition so ECS injects DATABASE_URL
+  # as environment variable at container startup (no secrets in task def JSON)
+  db_secret_arn = module.secrets.db_secret_arn
 
   # Networking — ECS tasks run in public subnets with public IPs (see ADR-001)
   subnet_ids = module.networking.public_subnet_ids

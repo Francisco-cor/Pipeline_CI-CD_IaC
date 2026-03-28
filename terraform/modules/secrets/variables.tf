@@ -38,12 +38,3 @@ variable "rds_password" {
   sensitive   = true
 }
 
-variable "redis_endpoint" {
-  description = "Hostname of the primary ElastiCache Redis node."
-  type        = string
-}
-
-variable "redis_port" {
-  description = "Port the ElastiCache Redis cluster listens on."
-  type        = number
-}

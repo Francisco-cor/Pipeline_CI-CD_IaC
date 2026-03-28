@@ -17,8 +17,4 @@ output "db_secret_arn" {
   value       = aws_secretsmanager_secret.db_url.arn
 }
 
-output "redis_secret_arn" {
-  description = "ARN of the Secrets Manager secret that holds the Redis connection string."
-  value       = aws_secretsmanager_secret.redis_url.arn
-}
 

@@ -28,12 +28,3 @@ output "rds_password" {
   sensitive   = true
 }
 
-output "redis_endpoint" {
-  description = "Hostname of the primary ElastiCache Redis node."
-  value       = aws_elasticache_cluster.redis.cache_nodes[0].address
-}
-
-output "redis_port" {
-  description = "Port the ElastiCache Redis cluster listens on (default: 6379)."
-  value       = aws_elasticache_cluster.redis.cache_nodes[0].port
-}

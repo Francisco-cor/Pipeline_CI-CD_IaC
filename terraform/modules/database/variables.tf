@@ -27,11 +27,6 @@ variable "sg_db_id" {
   type        = string
 }
 
-variable "sg_redis_id" {
-  description = "ID of the security group to attach to the ElastiCache cluster. Should only allow inbound from sg_app."
-  type        = string
-}
-
 variable "subnet_ids" {
   description = "List of subnet IDs for the RDS and ElastiCache subnet groups. Must span at least two AZs (AWS requirement for DB subnet groups)."
   type        = list(string)

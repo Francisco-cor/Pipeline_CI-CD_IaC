@@ -5,7 +5,7 @@
 #   - VPC
 #   - Public subnets (one per AZ)
 #   - Internet Gateway + route table
-#   - Security groups for app, database, and Redis
+#   - Security groups for app and database
 #
 # Design decision — public subnets without NAT Gateway:
 #   See docs/adr/ADR-001-public-subnets-no-nat-gateway.md for the full
@@ -136,7 +136,7 @@ resource "aws_security_group" "sg_app" {
   #   - ECR (image pulls)
   #   - Secrets Manager (secret fetching at startup)
   #   - CloudWatch Logs (log shipping)
-  #   - RDS and Redis within the VPC
+  #   - RDS (within the VPC)
   egress {
     description = "Allow all outbound"
     from_port   = 0
@@ -180,29 +180,3 @@ resource "aws_security_group" "sg_db" {
   }
 }
 
-# -----------------------------------------------------------------------------
-# Security Group: sg_redis
-#
-# Attached to the ElastiCache Redis cluster.
-# Inbound: Redis (6379) ONLY from sg_app.
-# Outbound: none.
-# -----------------------------------------------------------------------------
-resource "aws_security_group" "sg_redis" {
-  name        = "${var.project_name}-${var.environment}-sg-redis"
-  description = "Cache tier: Redis access restricted to sg_app only. No internet access."
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description              = "Redis from app tier only"
-    from_port                = 6379
-    to_port                  = 6379
-    protocol                 = "tcp"
-    source_security_group_id = aws_security_group.sg_app.id
-  }
-
-  # No egress rule = implicit deny all outbound
-
-  tags = {
-    Name = "${var.project_name}-${var.environment}-sg-redis"
-  }
-}

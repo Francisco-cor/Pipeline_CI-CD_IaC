@@ -22,7 +22,3 @@ output "sg_db_id" {
   value       = aws_security_group.sg_db.id
 }
 
-output "sg_redis_id" {
-  description = "ID of the Redis security group. Attached to ElastiCache; allows inbound Redis (6379) only from sg_app."
-  value       = aws_security_group.sg_redis.id
-}
