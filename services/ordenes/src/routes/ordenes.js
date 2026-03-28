@@ -24,6 +24,16 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'producto_id, cantidad, and total are required' });
   }
   try {
+    // Validate the FK before inserting so callers get a 404 with a clear
+    // message instead of a raw DB constraint error string from a 500.
+    const { rowCount } = await pool.query(
+      'SELECT 1 FROM productos WHERE id = $1',
+      [producto_id]
+    );
+    if (rowCount === 0) {
+      return res.status(404).json({ error: `producto ${producto_id} not found` });
+    }
+
     const { rows } = await pool.query(
       'INSERT INTO ordenes (producto_id, cantidad, total) VALUES ($1, $2, $3) RETURNING *',
       [producto_id, cantidad, total]

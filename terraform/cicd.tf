@@ -119,14 +119,23 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
+  # ListTasks is scoped to the cluster (correct resource type for this action).
   statement {
-    sid = "ECSClusterRead"
-    actions = [
-      "ecs:DescribeTasks",
-      "ecs:ListTasks",
-    ]
+    sid     = "ECSListTasks"
+    actions = ["ecs:ListTasks"]
     resources = [
       "arn:aws:ecs:${var.aws_region}:*:cluster/${var.project_name}-${var.environment}-cluster",
+    ]
+  }
+
+  # DescribeTasks requires a task ARN, not a cluster ARN.
+  # Previously both actions shared the cluster ARN resource, which caused
+  # AccessDenied for DescribeTasks at runtime.
+  statement {
+    sid     = "ECSDescribeTasks"
+    actions = ["ecs:DescribeTasks"]
+    resources = [
+      "arn:aws:ecs:${var.aws_region}:*:task/${var.project_name}-${var.environment}-cluster/*",
     ]
   }
 
