@@ -47,13 +47,19 @@ data "aws_iam_policy_document" "github_actions_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Scope to this specific GitHub repository, main branch only.
-    # Wildcard (*) would allow any branch/tag/PR to assume this role and deploy.
+    # Scope to this specific GitHub repository.
+    # Two subjects are allowed:
+    #   - push to main   → build + deploy jobs
+    #   - pull_request   → terraform plan job (read-only, no deploy)
+    # Any other branch or actor cannot assume this role.
     # var.github_repo format: "owner/repo-name"
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
+      values = [
+        "repo:${var.github_repo}:ref:refs/heads/main",
+        "repo:${var.github_repo}:pull_request",
+      ]
     }
   }
 }

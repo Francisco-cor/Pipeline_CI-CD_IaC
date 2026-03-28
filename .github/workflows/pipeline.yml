@@ -3,7 +3,7 @@
 #
 # Triggers:
 #   - push to main         → full pipeline (lint + test + build + deploy)
-#   - pull_request to main → lint + test only (no build, no deploy)
+#   - pull_request to main → lint + test + terraform plan (no build, no deploy)
 #
 # Auth: GitHub Actions assumes an AWS IAM role via OIDC.
 # Zero long-lived credentials stored in GitHub secrets.
@@ -32,41 +32,46 @@ env:
 jobs:
   # ---------------------------------------------------------------------------
   # Job 1: Lint
-  # Run ESLint on all three services. Fails fast — no point testing broken code.
+  # Matrix: runs ESLint on all three services in parallel.
+  # npm cache keyed on each service's package-lock.json — a lock-file change
+  # in one service only invalidates that service's cache, not the others.
   # ---------------------------------------------------------------------------
   lint:
-    name: Lint
+    name: Lint (${{ matrix.service }})
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service: [productos, ordenes, stock]
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
 
-      - name: Lint svc-productos
-        run: npm install --silent && npm run lint
-        working-directory: services/productos
-
-      - name: Lint svc-ordenes
-        run: npm install --silent && npm run lint
-        working-directory: services/ordenes
-
-      - name: Lint svc-stock
-        run: npm install --silent && npm run lint
-        working-directory: services/stock
+      - name: Lint svc-${{ matrix.service }}
+        run: npm ci --silent && npm run lint
+        working-directory: services/${{ matrix.service }}
 
   # ---------------------------------------------------------------------------
   # Job 2: Test
-  # Jest integration tests run against a real PostgreSQL service container.
-  # Migrations are applied before the test suites so all DB objects exist.
-  # DB-dependent tests (health, CRUD) pass only when the DB is healthy.
-  # A deploy that breaks /health will fail here before it ever reaches AWS.
+  # Matrix: runs Jest against a real postgres:15 service container.
+  # Each matrix variant gets its own isolated runner + DB — no shared state,
+  # no race conditions on migrations.
+  # Cache covers both migrations and the service's own dependencies.
   # ---------------------------------------------------------------------------
   test:
-    name: Test
+    name: Test (${{ matrix.service }})
     needs: lint
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service: [productos, ordenes, stock]
 
     services:
       postgres:
@@ -93,25 +98,66 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          # Both migrations and the service share this cache entry so a
+          # single npm ci in migrations doesn't bust the service cache.
+          cache-dependency-path: |
+            migrations/package-lock.json
+            services/${{ matrix.service }}/package-lock.json
 
       - name: Run database migrations
-        run: npm install --silent && node run.js
+        run: npm ci --silent && node run.js
         working-directory: migrations
 
-      - name: Test svc-productos
-        run: npm install --silent && npm test
-        working-directory: services/productos
-
-      - name: Test svc-ordenes
-        run: npm install --silent && npm test
-        working-directory: services/ordenes
-
-      - name: Test svc-stock
-        run: npm install --silent && npm test
-        working-directory: services/stock
+      - name: Test svc-${{ matrix.service }}
+        run: npm ci --silent && npm test
+        working-directory: services/${{ matrix.service }}
 
   # ---------------------------------------------------------------------------
-  # Job 3: Build
+  # Job 3: Terraform (PRs only)
+  # Runs fmt check + plan against the real AWS account so reviewers can see
+  # exactly what infrastructure would change before merging.
+  # Needs the OIDC trust policy to allow pull_request events (see cicd.tf).
+  # ---------------------------------------------------------------------------
+  terraform:
+    name: Terraform Plan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write   # Required for OIDC token request
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+        working-directory: terraform
+
+      - name: Terraform init
+        run: terraform init -input=false
+        working-directory: terraform
+
+      - name: Terraform plan
+        run: terraform plan -no-color -input=false
+        working-directory: terraform
+        env:
+          TF_VAR_github_repo:  ${{ github.repository }}
+          TF_VAR_environment:  ${{ env.ENVIRONMENT }}
+          TF_VAR_project_name: ${{ env.PROJECT_NAME }}
+          TF_VAR_aws_region:   ${{ env.AWS_REGION }}
+
+  # ---------------------------------------------------------------------------
+  # Job 4: Build
   # Build Docker images and push to ECR. Only runs on push to main (not PRs).
   # Uses OIDC — no AWS access keys stored anywhere.
   # Outputs the image tag so the deploy job knows which revision to roll out.
@@ -154,7 +200,7 @@ jobs:
           PROJECT_NAME:  ${{ env.PROJECT_NAME }}
 
   # ---------------------------------------------------------------------------
-  # Job 4: Deploy
+  # Job 5: Deploy
   # Register a new ECS task definition revision (with the just-pushed image tag)
   # and update the service. Waits for the deployment to stabilize.
   # If health checks fail after deployment, ECS auto-rolls back (circuit breaker).
