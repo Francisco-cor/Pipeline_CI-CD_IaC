@@ -21,12 +21,12 @@ router.get('/', async (req, res) => {
     });
   } catch (err) {
     // Return 500 — this is what triggers ECS rollback
+    // Log the real error internally; never expose DB internals to callers.
     logger.error('Health check failed — DB unreachable', { error: err.message });
     res.status(500).json({
       status: 'error',
       service: process.env.SERVICE_NAME || 'unknown',
       db: 'disconnected',
-      error: err.message,
     });
   }
 });

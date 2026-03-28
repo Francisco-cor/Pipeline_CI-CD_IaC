@@ -10,7 +10,9 @@ const path = require('path');
 async function runMigrations() {
   const client = new Client({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    // node:20-alpine includes the Amazon Root CA, so RDS certs verify without
+    // bundling extra CA files. rejectUnauthorized defaults to true when ssl: true.
+    ssl: process.env.NODE_ENV === 'production' ? true : false,
   });
 
   try {
