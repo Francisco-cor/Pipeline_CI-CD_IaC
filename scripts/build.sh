@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_REGION="${AWS_REGION:-us-east-2}"
 PROJECT_NAME="${PROJECT_NAME:-erp-pipeline}"
 GIT_SHA="${1:-$(git rev-parse --short HEAD)}"
 IMAGE_TAG="sha-${GIT_SHA}"

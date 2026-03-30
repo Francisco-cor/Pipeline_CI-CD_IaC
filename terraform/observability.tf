@@ -36,6 +36,8 @@ resource "aws_cloudwatch_log_metric_filter" "service_errors" {
   pattern        = "{ $.level = \"error\" }"
   log_group_name = "/ecs/${var.project_name}-${var.environment}"
 
+  depends_on = [module.compute]
+
   metric_transformation {
     name          = "ServiceErrorCount"
     namespace     = "${var.project_name}/${var.environment}"

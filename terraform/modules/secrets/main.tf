@@ -14,32 +14,21 @@
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
-# Secret: /erp/db-url
+# Parameter Store: /erp/db-url
 #
 # Stores the full PostgreSQL connection string in the format expected by most
 # Node.js ORMs (Prisma, TypeORM, Sequelize, pg):
 #   postgresql://username:password@host:port/dbname
 # -----------------------------------------------------------------------------
-resource "aws_secretsmanager_secret" "db_url" {
+resource "aws_ssm_parameter" "db_url" {
   name        = "/${var.project_name}/${var.environment}/db-url"
   description = "Full PostgreSQL DATABASE_URL connection string for the ${var.project_name} ${var.environment} environment. Injected into ECS containers as the DATABASE_URL environment variable."
-
-  # Allow immediate deletion without a recovery window in dev (saves cost and
-  # avoids name-collision issues when re-deploying). In prod, set this to 7-30.
-  recovery_window_in_days = 0
+  type        = "SecureString" # Standard tier is free
+  value       = "postgresql://${var.rds_username}:${var.rds_password}@${var.rds_endpoint}:${var.rds_port}/${var.rds_db_name}"
 
   tags = {
     Name = "${var.project_name}-${var.environment}-db-url"
   }
-}
-
-resource "aws_secretsmanager_secret_version" "db_url" {
-  secret_id = aws_secretsmanager_secret.db_url.id
-
-  # Build a standard PostgreSQL connection string from RDS outputs.
-  # The password comes from the database module's random_password resource.
-  # Terraform marks this as sensitive in state due to var.rds_password.
-  secret_string = "postgresql://${var.rds_username}:${var.rds_password}@${var.rds_endpoint}:${var.rds_port}/${var.rds_db_name}"
 }
 
 # -----------------------------------------------------------------------------
@@ -80,22 +69,18 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_managed" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Inline policy: restrict Secrets Manager access to ONLY the 3 secrets above.
-# Using an inline policy (vs. a managed policy) keeps the permission scoped
-# to exactly this set of secrets and makes the boundary explicit in code.
+# Inline policy: restrict SSM access to ONLY the specific parameter above.
 data "aws_iam_policy_document" "ecs_task_execution_secrets" {
   statement {
-    sid    = "AllowGetSpecificSecrets"
+    sid    = "AllowGetSpecificParameters"
     effect = "Allow"
 
     actions = [
-      "secretsmanager:GetSecretValue",
+      "ssm:GetParameters",
     ]
 
-    # Explicitly enumerate the secrets — NOT "arn:aws:secretsmanager:*:*:secret:*"
-    # This ensures the execution role cannot read any other secrets in the account.
     resources = [
-      aws_secretsmanager_secret.db_url.arn,
+      aws_ssm_parameter.db_url.arn,
     ]
   }
 }
@@ -128,7 +113,7 @@ data "aws_iam_policy_document" "ecs_task_trust" {
 
 resource "aws_iam_role" "ecs_task" {
   name               = "${var.project_name}-${var.environment}-ecs-task-role"
-  description        = "Runtime identity for ${var.project_name} ${var.environment} application containers. No permissions by default — extend as needed."
+  description        = "Runtime identity for ${var.project_name} ${var.environment} application containers. No permissions by default - extend as needed."
   assume_role_policy = data.aws_iam_policy_document.ecs_task_trust.json
 
   tags = {

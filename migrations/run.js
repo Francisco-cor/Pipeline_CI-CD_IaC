@@ -10,9 +10,11 @@ const path = require('path');
 async function runMigrations() {
   const client = new Client({
     connectionString: process.env.DATABASE_URL,
-    // node:20-alpine includes the Amazon Root CA, so RDS certs verify without
-    // bundling extra CA files. rejectUnauthorized defaults to true when ssl: true.
-    ssl: process.env.NODE_ENV === 'production' ? true : false,
+    // Detect if we are connecting to AWS RDS. If so, enable SSL (required by AWS).
+    // rejectUnauthorized: false is used to skip local CA verification for dev convenience.
+    ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('amazonaws.com')
+      ? { rejectUnauthorized: false }
+      : false,
   });
 
   try {

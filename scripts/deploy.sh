@@ -34,7 +34,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_REGION="${AWS_REGION:-us-east-2}"
 PROJECT_NAME="${PROJECT_NAME:-erp-pipeline}"
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 GIT_SHA="${1:-$(git rev-parse --short HEAD)}"

@@ -28,9 +28,8 @@ resource "random_password" "db_password" {
   length  = 32
   special = true
 
-  # Exclude characters that cause issues in PostgreSQL connection strings
-  # or shell escaping: @, /, \, ', ", `, space
-  override_special = "!#$%^&*()-_=+[]{}|;:,.<>?"
+  # Remove @, :, /, #, and quotes that break the connection string
+  override_special = "!$%^&*()-_=+[]{}|;.,<>" 
 }
 
 # -----------------------------------------------------------------------------
@@ -58,7 +57,7 @@ resource "aws_db_instance" "postgres" {
 
   # Engine
   engine         = "postgres"
-  engine_version = "15.4"
+  engine_version = "15" # AWS will use the default minor version for the region
 
   # Instance sizing — db.t3.micro is covered by AWS Free Tier (750 hrs/month
   # for the first 12 months). Upgrade to db.t3.small or db.r6g.large for prod.
@@ -80,7 +79,7 @@ resource "aws_db_instance" "postgres" {
   multi_az = false
 
   # Backups
-  backup_retention_period = 7    # days; minimum recommended even for dev
+  backup_retention_period = 0    # days; set to 0 to disable automated backups in free tier
   backup_window           = "03:00-04:00" # UTC — low-traffic window
 
   # Maintenance

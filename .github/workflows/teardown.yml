@@ -1,0 +1,56 @@
+# =============================================================================
+# Auto-Cleanup Pipeline: terraform destroy
+#
+# Goal: Avoid fixed costs (Public IPs, Fargate, etc.) by destroying the
+# infrastructure every night.
+#
+# Schedule: 11 PM UTC daily.
+# Manual: Can be triggered from the Actions tab.
+# =============================================================================
+
+name: Auto-Cleanup
+
+on:
+  schedule:
+    - cron: '0 23 * * *' # 11 PM UTC
+  workflow_dispatch:      # Allows manual trigger for testing or on-demand cleanup
+
+env:
+  AWS_REGION:    us-east-2
+  PROJECT_NAME:  erp-pipeline
+  ENVIRONMENT:   dev
+
+jobs:
+  destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    
+    permissions:
+      id-token: write   # Required for OIDC token request
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        run: terraform init -input=false
+        working-directory: terraform
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve -input=false
+        working-directory: terraform
+        env:
+          TF_VAR_github_repo:  ${{ github.repository }}
+          TF_VAR_environment:  ${{ env.ENVIRONMENT }}
+          TF_VAR_project_name: ${{ env.PROJECT_NAME }}
+          TF_VAR_aws_region:   ${{ env.AWS_REGION }}

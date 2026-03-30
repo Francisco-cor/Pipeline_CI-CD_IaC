@@ -67,7 +67,7 @@ data "aws_iam_policy_document" "github_actions_assume" {
 resource "aws_iam_role" "github_actions" {
   name               = "${var.project_name}-${var.environment}-github-actions"
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume.json
-  description        = "Assumed by GitHub Actions via OIDC for CI/CD — no long-lived keys"
+  description        = "Assumed by GitHub Actions via OIDC for CI/CD - no long-lived keys"
 }
 
 # Minimal permissions for the CI/CD pipeline:

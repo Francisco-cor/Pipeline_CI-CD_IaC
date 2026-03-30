@@ -23,7 +23,7 @@ variable "task_role_arn" {
 }
 
 variable "db_secret_arn" {
-  description = "ARN of the Secrets Manager secret containing the DATABASE_URL. Referenced in the task definition so ECS injects it as an environment variable at container start."
+  description = "ARN of the SSM Parameter containing the DATABASE_URL. Referenced in the task definition so ECS injects it as an environment variable at container start."
   type        = string
 }
 

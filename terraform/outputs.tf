@@ -40,13 +40,3 @@ output "log_group_name" {
   description = "CloudWatch log group for ECS container logs. View with: aws logs tail <name> --follow"
   value       = module.compute.log_group_name
 }
-
-output "github_actions_role_arn" {
-  description = "IAM role ARN for GitHub Actions OIDC. Add as AWS_ROLE_ARN secret in GitHub repo settings."
-  value       = aws_iam_role.github_actions.arn
-}
-
-output "sns_topic_arn" {
-  description = "SNS topic ARN for CloudWatch alarm notifications."
-  value       = aws_sns_topic.alerts.arn
-}

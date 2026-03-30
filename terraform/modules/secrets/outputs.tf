@@ -13,8 +13,8 @@ output "task_role_arn" {
 }
 
 output "db_secret_arn" {
-  description = "ARN of the Secrets Manager secret that holds the full PostgreSQL DATABASE_URL connection string."
-  value       = aws_secretsmanager_secret.db_url.arn
+  description = "ARN of the SSM Parameter that holds the full PostgreSQL DATABASE_URL connection string."
+  value       = aws_ssm_parameter.db_url.arn
 }
 
 

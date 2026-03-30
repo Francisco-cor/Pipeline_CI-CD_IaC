@@ -34,7 +34,7 @@ permissions:
 - uses: aws-actions/configure-aws-credentials@v4
   with:
     role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-    aws-region: us-east-1
+    aws-region: us-east-2
 ```
 
 `AWS_ROLE_ARN` is the only secret stored in GitHub — it is a role ARN, not a credential.

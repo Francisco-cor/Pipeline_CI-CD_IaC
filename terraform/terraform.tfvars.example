@@ -13,7 +13,7 @@
 
 project_name = "erp-pipeline"
 environment  = "dev"
-aws_region   = "us-east-1"
+aws_region   = "us-east-2"
 
 db_name     = "erpdb"
 db_username = "erpadmin"

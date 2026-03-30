@@ -21,5 +21,5 @@ variable "vpc_cidr" {
 variable "availability_zones" {
   description = "List of Availability Zones to create public subnets in. Provide at least two for subnet group compatibility with RDS and ElastiCache (both require a subnet group spanning >= 2 AZs)."
   type        = list(string)
-  default     = ["us-east-1a", "us-east-1b"]
+  default     = ["us-east-2a", "us-east-2b"]
 }

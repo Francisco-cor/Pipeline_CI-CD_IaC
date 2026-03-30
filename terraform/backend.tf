@@ -11,7 +11,7 @@
 #   terraform init \
 #     -backend-config="bucket=erp-pipeline-tfstate-dev" \
 #     -backend-config="dynamodb_table=erp-pipeline-tfstate-lock" \
-#     -backend-config="region=us-east-1"
+#     -backend-config="region=us-east-2"
 #
 # Option B: Replace the placeholder strings below with literals before running
 #   terraform init (acceptable for a single-environment project).
@@ -27,7 +27,7 @@ terraform {
     # with literals matching the output of bootstrap-backend.sh.
     bucket = "erp-pipeline-tfstate-dev" # replace with: ${project_name}-tfstate-${environment}
     key    = "terraform.tfstate"
-    region = "us-east-1"
+    region = "us-east-2"
 
     # State locking via DynamoDB prevents concurrent runs from corrupting state
     dynamodb_table = "erp-pipeline-tfstate-lock" # replace with: ${project_name}-tfstate-lock

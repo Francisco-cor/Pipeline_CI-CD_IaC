@@ -28,8 +28,8 @@ For a portfolio project generating zero revenue, $48/month in fixed networking o
 
 ECS Fargate tasks require outbound internet connectivity for three reasons:
 
-1. **ECR image pulls** — pulling the application container image from Amazon ECR requires reaching the ECR API (`api.ecr.us-east-1.amazonaws.com`) and ECR DKR endpoint
-2. **AWS API calls** — at startup, the task execution role calls Secrets Manager (`secretsmanager.us-east-1.amazonaws.com`) to inject secrets as environment variables
+1. **ECR image pulls** — pulling the application container image from Amazon ECR requires reaching the ECR API (`api.ecr.us-east-2.amazonaws.com`) and ECR DKR endpoint
+2. **AWS API calls** — at startup, the task execution role calls Secrets Manager (`secretsmanager.us-east-2.amazonaws.com`) to inject secrets as environment variables
 3. **CloudWatch Logs** — the `awslogs` log driver streams container output to CloudWatch Logs in real time
 
 In a private-subnet architecture, this outbound traffic is routed through a NAT Gateway. Without a NAT Gateway, tasks in private subnets have no path to the internet or AWS APIs (unless VPC Interface Endpoints are added — see Alternatives Considered).
@@ -121,10 +121,10 @@ VPC Interface Endpoints allow private subnet resources to reach AWS services wit
 
 | Endpoint | Cost |
 |----------|------|
-| `com.amazonaws.us-east-1.ecr.api` | $7.30/month |
-| `com.amazonaws.us-east-1.ecr.dkr` | $7.30/month |
-| `com.amazonaws.us-east-1.secretsmanager` | $7.30/month |
-| `com.amazonaws.us-east-1.logs` | $7.30/month |
+| `com.amazonaws.us-east-2.ecr.api` | $7.30/month |
+| `com.amazonaws.us-east-2.ecr.dkr` | $7.30/month |
+| `com.amazonaws.us-east-2.secretsmanager` | $7.30/month |
+| `com.amazonaws.us-east-2.logs` | $7.30/month |
 | **Total** | **$29.20/month** |
 
 This would keep ECS tasks in private subnets (better security) but costs nearly as much as a NAT Gateway and is more complex to configure. **Rejected on cost grounds.**

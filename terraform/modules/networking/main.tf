@@ -170,7 +170,7 @@ resource "aws_security_group" "sg_db" {
     from_port                = 5432
     to_port                  = 5432
     protocol                 = "tcp"
-    source_security_group_id = aws_security_group.sg_app.id
+    security_groups          = [aws_security_group.sg_app.id]
   }
 
   # No egress rule = implicit deny all outbound (RDS never initiates connections)

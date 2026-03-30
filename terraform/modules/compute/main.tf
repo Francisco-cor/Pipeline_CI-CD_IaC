@@ -62,12 +62,12 @@ resource "aws_ecr_lifecycle_policy" "services" {
       },
       {
         rulePriority = 2
-        description  = "Keep last 10 tagged images for rollback capability"
+        description  = "Keep last 1 tagged images for rollback capability"
         selection = {
           tagStatus     = "tagged"
           tagPrefixList = ["sha-", "v", "latest"]
           countType     = "imageCountMoreThan"
-          countNumber   = 10
+          countNumber   = 1
         }
         action = { type = "expire" }
       }

@@ -24,7 +24,7 @@ on:
     branches: [main]
 
 env:
-  AWS_REGION:    us-east-1
+  AWS_REGION:    us-east-2
   PROJECT_NAME:  erp-pipeline
   ENVIRONMENT:   dev
   NODE_VERSION:  "20"

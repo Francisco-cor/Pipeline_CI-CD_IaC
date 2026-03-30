@@ -132,7 +132,7 @@ GitHub Actions uses OIDC to assume an AWS IAM role — no `AWS_ACCESS_KEY_ID` st
 
 ```bash
 chmod +x scripts/bootstrap-backend.sh
-./scripts/bootstrap-backend.sh erp-pipeline dev us-east-1
+./scripts/bootstrap-backend.sh erp-pipeline dev us-east-2
 ```
 
 ### 2. Apply infrastructure
@@ -147,7 +147,7 @@ cp terraform.tfvars.example terraform.tfvars
 terraform init \
   -backend-config="bucket=erp-pipeline-dev-tfstate" \
   -backend-config="dynamodb_table=erp-pipeline-dev-tflock" \
-  -backend-config="region=us-east-1"
+  -backend-config="region=us-east-2"
 
 terraform plan
 terraform apply
