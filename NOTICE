@@ -1,0 +1,14 @@
+ERP Pipeline — Cloud Native Microservices, CI/CD with IaC, Secrets Management
+Copyright (c) 2026 Francisco Cordero
+
+This product includes software developed by third parties:
+
+- Node.js (MIT) — https://github.com/nodejs/node
+- Express (MIT) — https://github.com/expressjs/express
+- pg / node-postgres (MIT) — https://github.com/brianc/node-postgres
+- Terraform AWS Provider (MPL-2.0) — https://github.com/hashicorp/terraform-provider-aws
+- Docker / Nginx (Apache-2.0) — https://github.com/nginx/nginx
+
+SPDX-License-Identifier for this repository: MIT (see LICENSE:1-21)
+New files carry `SPDX-License-Identifier: MIT` header where applicable.
+Binary assets in docs/screenshots/ are documentation only.
