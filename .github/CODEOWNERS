@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+# CODEOWNERS — define reviewers for critical paths
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @Francisco-cor
+
+# Infra crítica — requiere review infra
+/terraform/ @Francisco-cor
+/scripts/bootstrap-backend.* @Francisco-cor
+
+# Pipeline
+/.github/workflows/ @Francisco-cor
+
+# Servicios — opcional por dominio
+/services/productos/ @Francisco-cor
+/services/ordenes/ @Francisco-cor
+/services/stock/ @Francisco-cor
