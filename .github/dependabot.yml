@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: MIT
+version: 2
+updates:
+  # npm — Node services + migrations
+  - package-ecosystem: npm
+    directory: /services/productos
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+    labels: [deps, npm]
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /services/ordenes
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+    labels: [deps, npm]
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /services/stock
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+    labels: [deps, npm]
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /migrations
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+    labels: [deps, npm]
+    open-pull-requests-limit: 3
+
+  # Docker — nginx + node bases
+  - package-ecosystem: docker
+    directory: /services/productos
+    schedule: { interval: weekly }
+    labels: [deps, docker]
+  - package-ecosystem: docker
+    directory: /services/ordenes
+    schedule: { interval: weekly }
+    labels: [deps, docker]
+  - package-ecosystem: docker
+    directory: /services/stock
+    schedule: { interval: weekly }
+    labels: [deps, docker]
+  - package-ecosystem: docker
+    directory: /nginx
+    schedule: { interval: weekly }
+    labels: [deps, docker]
+  - package-ecosystem: docker
+    directory: /migrations
+    schedule: { interval: weekly }
+    labels: [deps, docker]
+
+  # Terraform
+  - package-ecosystem: terraform
+    directory: /terraform
+    schedule: { interval: weekly }
+    labels: [deps, terraform]
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    labels: [deps, github-actions]
