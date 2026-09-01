@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+node_modules/
+.terraform/
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+dist/
+build/
+coverage/
+.next/
+out/
+.terraform.lock.hcl
+package-lock.json
+docs/screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
