@@ -62,11 +62,20 @@ echo ""
 # Since us-east-2 is now the default, we use it here.
 # -----------------------------------------------------------------------------
 echo "[1/6] Creating S3 bucket: ${BUCKET}"
-aws s3api create-bucket \
-  --bucket "${BUCKET}" \
-  --region "${REGION}" \
-  --create-bucket-configuration LocationConstraint="${REGION}"
-echo "      OK"
+if aws s3api head-bucket --bucket "${BUCKET}" 2>/dev/null; then
+  echo "      Already exists — skipping create."
+else
+  # head-bucket 404 → create; handle us-east-1 (no LocationConstraint)
+  if [ "${REGION}" = "us-east-1" ]; then
+    aws s3api create-bucket --bucket "${BUCKET}" --region "${REGION}"
+  else
+    aws s3api create-bucket \
+      --bucket "${BUCKET}" \
+      --region "${REGION}" \
+      --create-bucket-configuration LocationConstraint="${REGION}"
+  fi
+  echo "      Created."
+fi
 
 # -----------------------------------------------------------------------------
 # Enable versioning — required to recover from accidental state deletion or
@@ -140,13 +149,17 @@ echo "      OK"
 # The LockID attribute is the key used by the Terraform S3 backend.
 # -----------------------------------------------------------------------------
 echo "[6/6] Creating DynamoDB table for state locking: ${TABLE}"
-aws dynamodb create-table \
-  --table-name "${TABLE}" \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region "${REGION}"
-echo "      OK"
+if aws dynamodb describe-table --table-name "${TABLE}" --region "${REGION}" >/dev/null 2>&1; then
+  echo "      Already exists — skipping create."
+else
+  aws dynamodb create-table \
+    --table-name "${TABLE}" \
+    --attribute-definitions AttributeName=LockID,AttributeType=S \
+    --key-schema AttributeName=LockID,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST \
+    --region "${REGION}"
+  echo "      Created."
+fi
 
 echo ""
 echo "=========================================="
