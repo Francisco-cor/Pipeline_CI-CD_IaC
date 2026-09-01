@@ -28,7 +28,11 @@ app.use((req, res, next) => {
 
 // Routes
 app.get('/', (req, res) => {
-  res.json({ service: 'svc-ordenes', version: process.env.APP_VERSION || 'dev', status: 'running' });
+  res.json({
+    service: 'svc-ordenes',
+    version: process.env.APP_VERSION || 'dev',
+    status: 'running',
+  });
 });
 app.use('/health', healthRouter);
 app.use('/ordenes', ordenesRouter);

@@ -12,9 +12,10 @@ async function runMigrations() {
     connectionString: process.env.DATABASE_URL,
     // Detect if we are connecting to AWS RDS. If so, enable SSL (required by AWS).
     // rejectUnauthorized: false is used to skip local CA verification for dev convenience.
-    ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('amazonaws.com')
-      ? { rejectUnauthorized: false }
-      : false,
+    ssl:
+      process.env.DATABASE_URL && process.env.DATABASE_URL.includes('amazonaws.com')
+        ? { rejectUnauthorized: false }
+        : false,
   });
 
   try {
@@ -24,7 +25,8 @@ async function runMigrations() {
 
     // Get all .sql files sorted alphabetically (001_, 002_, ...)
     const migrationsDir = path.join(__dirname, 'sql');
-    const files = fs.readdirSync(migrationsDir)
+    const files = fs
+      .readdirSync(migrationsDir)
       .filter(f => f.endsWith('.sql'))
       .sort();
 

@@ -34,9 +34,7 @@ describe('POST /ordenes', () => {
   });
 
   it('returns 400 when cantidad is missing', async () => {
-    const res = await request(app)
-      .post('/ordenes')
-      .send({ producto_id: 1, total: 10 });
+    const res = await request(app).post('/ordenes').send({ producto_id: 1, total: 10 });
     expect(res.status).toBe(400);
   });
 });
