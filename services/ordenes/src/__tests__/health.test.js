@@ -1,8 +1,9 @@
 'use strict';
 
 const request = require('supertest');
-const app = require('../index');
+
 const pool = require('../db');
+const app = require('../index');
 
 afterAll(async () => {
   await pool.end();

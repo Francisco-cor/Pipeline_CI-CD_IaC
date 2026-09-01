@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+
 const pool = require('./db');
 const logger = require('./logger');
 const healthRouter = require('./routes/health');

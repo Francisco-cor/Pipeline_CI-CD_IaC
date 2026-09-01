@@ -1,0 +1,24 @@
+{
+  "private": true,
+  "name": "erp-pipeline-root",
+  "version": "1.0.0",
+  "description": "Root workspace for ERP Pipeline — shared lint/format. See services/*/package.json",
+  "workspaces": [
+    "services/*",
+    "migrations"
+  ],
+  "scripts": {
+    "lint": "eslint . --ext .js",
+    "lint:fix": "eslint . --ext .js --fix",
+    "format": "prettier --write \"**/*.{js,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{js,json,md,yml,yaml}\""
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-plugin-import": "^2.29.1",
+    "prettier": "^3.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
