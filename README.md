@@ -146,11 +146,56 @@ Application logs and performance metrics are centralized in CloudWatch.
 
 ---
 
-## Quick Start (Local Dev)
+## Quick Start (Local Dev) — Fase 2: compose + monorepo
 
-To run the entire stack locally for development:
-1. Clone the repo.
-2. Ensure Docker is running.
-3. Execute: `docker compose up --build`
-4. Access the API at `http://localhost:80/api/productos`.
+Prerrequisitos: Node 20 (`.nvmrc:1`), Docker + compose v2.
+
+```bash
+git clone <repo> && cd Pipeline_CI-CD_IaC
+cp .env.example .env        # opcional: ajusta POSTGRES_PASSWORD
+nvm use                     # o fnm/asdf — lee .tool-versions:1
+npm install                 # workspaces: root + services/* + packages/*
+
+# Opción A: Makefile (recomendado)
+make dev                    # docker compose up --build con hot-reload (override)
+# Opción B: script
+./scripts/dev.sh up
+# Opción C: directo
+docker compose up --build
+```
+
+- **Hot-reload:** `docker-compose.override.yml:12-62` monta `services/*/src` + `packages/shared/src` y usa `npm run dev` (nodemon). Edita `services/productos/src/routes/productos.js` y recarga sin rebuild.
+- **Prod-like sin hot-reload:** `make prod` o `docker compose -f docker-compose.yml up --build`
+- **Logs/ps:** `make logs` / `make ps` o `./scripts/dev.sh logs`
+- **Reset DB:** `make nuke` (borra `pgdata`)
+
+**Endpoints (vía NGINX en compose):**
+
+```bash
+curl http://localhost:80/health
+curl http://localhost:80/api/productos/health
+curl http://localhost:80/api/ordenes/health
+curl http://localhost:80/api/stock/health
+curl http://localhost:80/api/productos | jq
+```
+
+**Troubleshooting local:**
+
+| Síntoma | Causa | Fix |
+|---|---|---|
+| `migrations` exit 1 | `DATABASE_URL` mal o postgres no healthy | `docker compose logs postgres` + `docker compose logs migrations` |
+| `productos` health 500 `db: disconnected` | `postgres` no listo o `DATABASE_URL` apunta a host equivocado | Verifica `.env` usa `postgres:5432` (no `localhost`) dentro de compose |
+| `nginx` 502 | upstreams no resuelven | En compose se usa `nginx/nginx.local.conf:28-30` (`productos:3001`), no `127.0.0.1`; no montar `nginx.conf` de ECS |
+| `require('@erp/shared')` not found | workspaces no instalados | `npm install` en root; verifica `node_modules/@erp/shared/src/logger.js` existe |
+| `eslint import/order` | grupos sin línea vacía | `npm run lint:fix` |
+
+> Arquitectura local vs ECS: compose usa `upstreams productos:3001` (DNS Docker) vs ECS `127.0.0.1:3001` (awsvpc sidecar). Ver `docs/ARCHITECTURE.md:1` y `nginx/nginx.local.conf:1`.
+
+**Comandos útiles:**
+
+```bash
+make verify   # lint + format-check + compose config + terraform fmt -check
+make lint && make format-check
+docker compose config -q && echo "compose ok"
+```
 

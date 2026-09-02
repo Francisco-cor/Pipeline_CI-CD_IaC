@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: MIT
+# .dockerignore — root context para servicios (Fase 2: monorepo)
+# Usado cuando docker build context es . (root) y dockerfile es services/*/Dockerfile
+
+.git
+.github
+.gitignore
+.terraform
+*.tfstate
+*.tfstate.*
+
+node_modules
+npm-debug.log*
+yarn-debug.log*
+.pnpm-debug.log*
+.env
+.env.local
+dist/
+build/
+coverage/
+.vscode/
+.idea/
+*.swp
+*.bak
+*~
+
+# No enviar infra ni docs al daemon (reduce contexto ~90%)
+terraform/.terraform
+docs/screenshots
+*.md
+!README.md
+
+# Pero incluir lo necesario para servicios
+!package.json
+!package-lock.json
+!services/
+!packages/
+!migrations/
+!nginx/
+
+# Excluir pgdata si existe local
+pgdata
