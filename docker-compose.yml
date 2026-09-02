@@ -1,0 +1,146 @@
+# SPDX-License-Identifier: MIT
+# docker-compose.yml — stack local completo (postgres + migrations + 3 servicios + nginx)
+# Uso: cp .env.example .env && docker compose up --build
+# Requiere: Docker + compose v2
+# Nota: nginx.local.conf se monta para resolver por nombre de servicio (vs 127.0.0.1 en ECS)
+# Fase 2: compose base; hot-reload via docker-compose.override.yml
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: erp-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-erpdb}
+      POSTGRES_USER: ${POSTGRES_USER:-erpadmin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-test_password}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-erpadmin} -d ${POSTGRES_DB:-erpdb}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  migrations:
+    build:
+      context: ./migrations
+      dockerfile: Dockerfile
+    container_name: erp-migrations
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erpadmin}:${POSTGRES_PASSWORD:-test_password}@postgres:5432/${POSTGRES_DB:-erpdb}
+      NODE_ENV: ${NODE_ENV:-development}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+    # No healthcheck — es init container. Compose lo considera `service_completed_successfully` si exit 0.
+
+  productos:
+    build:
+      context: .
+      dockerfile: services/productos/Dockerfile
+    container_name: erp-productos
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erpadmin}:${POSTGRES_PASSWORD:-test_password}@postgres:5432/${POSTGRES_DB:-erpdb}
+      PORT: ${PORT_PRODUCTOS:-3001}
+      SERVICE_NAME: svc-productos
+      NODE_ENV: ${NODE_ENV:-development}
+      APP_VERSION: ${APP_VERSION:-dev}
+    ports:
+      - '${PORT_PRODUCTOS:-3001}:3001'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3001/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  ordenes:
+    build:
+      context: .
+      dockerfile: services/ordenes/Dockerfile
+    container_name: erp-ordenes
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erpadmin}:${POSTGRES_PASSWORD:-test_password}@postgres:5432/${POSTGRES_DB:-erpdb}
+      PORT: ${PORT_ORDENES:-3002}
+      SERVICE_NAME: svc-ordenes
+      NODE_ENV: ${NODE_ENV:-development}
+      APP_VERSION: ${APP_VERSION:-dev}
+    ports:
+      - '${PORT_ORDENES:-3002}:3002'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3002/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  stock:
+    build:
+      context: .
+      dockerfile: services/stock/Dockerfile
+    container_name: erp-stock
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erpadmin}:${POSTGRES_PASSWORD:-test_password}@postgres:5432/${POSTGRES_DB:-erpdb}
+      PORT: ${PORT_STOCK:-3003}
+      SERVICE_NAME: svc-stock
+      NODE_ENV: ${NODE_ENV:-development}
+      APP_VERSION: ${APP_VERSION:-dev}
+    ports:
+      - '${PORT_STOCK:-3003}:3003'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3003/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: erp-nginx
+    ports:
+      - '${NGINX_PORT:-80}:80'
+    volumes:
+      - ./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      productos:
+        condition: service_healthy
+      ordenes:
+        condition: service_healthy
+      stock:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    driver: local
