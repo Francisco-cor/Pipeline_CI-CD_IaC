@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: MIT
+# docker-compose.override.yml — hot-reload para desarrollo local
+# Se aplica automáticamente con `docker compose up` (compose v2 fusiona base + override).
+# Para modo prod sin override: `docker compose -f docker-compose.yml up --build`
+#
+# Qué hace:
+# - Monta src y package.json de cada servicio para recarga instantánea
+# - Cambia CMD a `npm run dev` (nodemon) — requiere dev deps en imagen
+# - Monta packages/shared cuando exista (Fase 2.4) para shared kernel
+# - Preserva node_modules en volumen anónimo para no pisar con host
+
+services:
+  productos:
+    build:
+      context: .
+      dockerfile: services/productos/Dockerfile
+    command: npm run dev
+    volumes:
+      - ./services/productos/src:/app/services/productos/src:ro
+      - ./services/productos/package.json:/app/services/productos/package.json:ro
+      - ./packages/shared/src:/app/packages/shared/src:ro
+      - ./packages/shared/package.json:/app/packages/shared/package.json:ro
+      - productos_node_modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: 'true'
+
+  ordenes:
+    build:
+      context: .
+      dockerfile: services/ordenes/Dockerfile
+    command: npm run dev
+    volumes:
+      - ./services/ordenes/src:/app/services/ordenes/src:ro
+      - ./services/ordenes/package.json:/app/services/ordenes/package.json:ro
+      - ./packages/shared/src:/app/packages/shared/src:ro
+      - ./packages/shared/package.json:/app/packages/shared/package.json:ro
+      - ordenes_node_modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: 'true'
+
+  stock:
+    build:
+      context: .
+      dockerfile: services/stock/Dockerfile
+    command: npm run dev
+    volumes:
+      - ./services/stock/src:/app/services/stock/src:ro
+      - ./services/stock/package.json:/app/services/stock/package.json:ro
+      - ./packages/shared/src:/app/packages/shared/src:ro
+      - ./packages/shared/package.json:/app/packages/shared/package.json:ro
+      - stock_node_modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: 'true'
+
+  # Postgres: expone datos persistentes pero permite reset rápido con `make nuke`
+  postgres:
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  productos_node_modules:
+  ordenes_node_modules:
+  stock_node_modules:
+  pgdata:
