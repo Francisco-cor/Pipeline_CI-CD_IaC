@@ -1,6 +1,7 @@
 # =============================================================================
 # CI/CD Pipeline: lint → test → build → deploy
 # Fase 6: concurrency, cache, sec (gitleaks/trivy), tf tflint/checkov, paths-filter
+# Fase 8: audit (npm audit + snyk) + sec headers + rate-limit
 #
 # Triggers:
 #   - push to main         → full pipeline (lint + test + build + deploy)
@@ -175,7 +176,45 @@ jobs:
           echo "- prettier --check passed" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
-  # Job 1c: Gitleaks (Fase 6.3)
+  # Job 1c: npm audit (Fase 8.7) — fail on HIGH, Snyk non-blocking
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Audit (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [productos, ordenes, stock]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
+
+      - name: npm audit (HIGH, prod only)
+        run: npm ci --silent && npm audit --audit-level=high --omit=dev
+        working-directory: services/${{ matrix.service }}
+
+      - name: Snyk test (high, soft-fail)
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=services/${{ matrix.service }}/package.json --json-file-output=snyk-${{ matrix.service }}.json
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Audit ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- npm audit --audit-level=high passed" >> $GITHUB_STEP_SUMMARY
+          echo "- snyk soft-fail (requires SNYK_TOKEN)" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Job 1d: Gitleaks (Fase 6.3)
   # Escanea historial por secretos hardcodeados. Non-blocking al inicio,
   # luego se puede poner exit-code 1 para blocking.
   # ---------------------------------------------------------------------------

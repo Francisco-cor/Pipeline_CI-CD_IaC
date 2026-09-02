@@ -20,6 +20,8 @@ COPY --from=deps --chown=nodejs:nodejs /app/packages/shared ./packages/shared
 COPY --from=deps --chown=nodejs:nodejs /app/services/ordenes/package.json ./services/ordenes/package.json
 COPY --chown=nodejs:nodejs services/ordenes/src ./services/ordenes/src
 COPY --chown=nodejs:nodejs packages/shared/src ./packages/shared/src
+# Fase 8.2 — CA bundle para RDS TLS en prod
+COPY --chown=nodejs:nodejs certs/rds-ca-bundle.pem /app/certs/rds-ca-bundle.pem
 
 WORKDIR /app/services/ordenes
 

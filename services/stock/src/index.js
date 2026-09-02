@@ -11,6 +11,9 @@ const stockRouter = require('./routes/stock');
 const app = express();
 const PORT = process.env.PORT || 3003;
 
+// Fase 8.3 — trust proxy para rate-limit detrás de NGINX
+app.set('trust proxy', 1);
+
 app.use(securityMiddleware());
 app.use(express.json());
 

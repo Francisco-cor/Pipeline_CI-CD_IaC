@@ -88,11 +88,14 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 - `observability.tf:34-63` metric filter `{$.level="error"}` → `ServiceErrorCount` → alarm `>10/5m` → SNS `alert_email`.
 - Fase 9 añade dashboard, p95, traces.
 
-## Seguridad
+## Seguridad (Fase 8)
 
-- OIDC GitHub→AWS (`cicd.tf:16-65`, `ADR-002`), sin keys.
-- SSM `SecureString` (`secrets/main.tf:23`), IAM `PassRole` scoped.
-- `nginx.conf:14-20` `limit_req_zone 30r/s`, `db.js:7-8` SSL auto si `amazonaws.com`, SGs (`networking/main.tf:114-181`) — RDS solo `sg_app→5432`.
+- OIDC GitHub→AWS (`cicd.tf:16-65`, `ADR-002`) — `prod` solo `main` (`cicd.tf:56` Fase 8.5), thumbprint `data.tls_certificate` auto + rotation doc `docs/security/rotation.md:1`.
+- SSM `SecureString` (`secrets/main.tf:23`) + `GetParameter/GetParameters` + `kms:Decrypt ViaService ssm` (`secrets/main.tf:73` Fase 8.1) + rotation manual `ssm put-parameter` + `taint random_password` (`docs/security/rotation.md:40`).
+- `nginx.conf:14-40` `limit_req_zone 30r/s burst 60 429` + `server_tokens off` + headers `X-Content-Type-Options/HSTS/CSP/Permissions-Policy` (`nginx.conf:36` Fase 8.4) + `client_max_body_size 1m` + `proxy_hide_header`.
+- `packages/shared/src/db.js:18` + `migrations/run.js:15` RDS TLS `rejectUnauthorized:true` en prod con CA `certs/rds-ca-bundle.pem` `/app/certs` (`Dockerfile:25` Fase 8.2) + `trust proxy 1` + `express-rate-limit 100/min` (`middleware.js:20` + `index.js:14` Fase 8.3).
+- SGs (`networking/main.tf:114-181`) RDS solo `sg_app→5432`, `enable_nat_gateway=false` FinOps vs `ADR-003` WAF toggle cuando `enable_alb=true` (Fase 8.8).
+- Supply chain: `gitleaks` + `trivy fs/image` + `npm audit --omit=dev high` + `snyk` (`pipeline.yml:180` Fase 8.7) + `checkov/tflint` 0 high.
 
 ## Convenciones
 
@@ -101,10 +104,12 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 
 ## Roadmap
 
-Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → production-grade. **Fases 1-7 completadas:** higiene (1) → compose+monorepo (2) → hardening API (3) → testing (4) → datos enterprise (5) → CI (6) → infra multi-env + prod guards + service discovery (7). Siguiente: Fase 8 sec profunda (SSM kms:Decrypt, WAF toggle) + Fase 9 obs (dashboard, p95).
+Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → production-grade. **Fases 1-8 completadas:** higiene (1) → compose+monorepo (2) → hardening API (3) → testing (4) → datos enterprise (5) → CI (6) → infra multi-env (7) → sec profunda (8). Siguiente: Fase 9 obs (dashboard p95 + X-Ray) + Fase 10 scale (ALB toggle).
 
-## Runbooks (Fase 7.9)
+## Runbooks (Fase 7.9 + 8.6)
 
 - `docs/runbooks/deploy.md:1` — deploy normal + `deploy.sh` verificación digest + lock
 - `docs/runbooks/rollback.md:1` — rollback automático circuit breaker vs manual `IMAGE_TAG=sha-prev`
 - `docs/runbooks/drift.md:1` — drift `plan -var-file=environments/*.tfvars` + `ignore_changes` de `task_definition`
+- `docs/security/rotation.md:1` — OIDC thumbprint + SSM/RDS password rotation (Fase 8.6)
+- `docs/adr/ADR-003-waf.md:1` — WAF toggle cuando `enable_alb=true` (Fase 8.8)

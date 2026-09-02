@@ -11,7 +11,10 @@ const productosRouter = require('./routes/productos');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Security + compression + requestId (Fase 3.5)
+// Fase 8.3 — trust proxy para rate-limit detrás de NGINX + security headers
+app.set('trust proxy', 1);
+
+// Security + compression + requestId (Fase 3.5) + rate-limit (Fase 8.3)
 app.use(securityMiddleware());
 app.use(express.json());
 

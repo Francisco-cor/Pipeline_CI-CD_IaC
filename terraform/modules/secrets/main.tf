@@ -70,18 +70,44 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_managed" {
 }
 
 # Inline policy: restrict SSM access to ONLY the specific parameter above.
+# Fase 8.1 — fix: añade GetParameter singular (Fase 8 checkov) + kms:Decrypt para SecureString CMK
+data "aws_region" "current" {}
+data "aws_caller_identity" "current" {}
+
 data "aws_iam_policy_document" "ecs_task_execution_secrets" {
   statement {
     sid    = "AllowGetSpecificParameters"
     effect = "Allow"
 
     actions = [
+      "ssm:GetParameter",
       "ssm:GetParameters",
     ]
 
     resources = [
       aws_ssm_parameter.db_url.arn,
+      # Also allow the ARN without leading slash variant used by some SDKs
+      "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/db-url",
     ]
+  }
+
+  statement {
+    sid    = "AllowKMSDecryptForSecureString"
+    effect = "Allow"
+
+    actions = [
+      "kms:Decrypt",
+    ]
+
+    resources = [
+      "*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["ssm.${data.aws_region.current.name}.amazonaws.com"]
+    }
   }
 }
 

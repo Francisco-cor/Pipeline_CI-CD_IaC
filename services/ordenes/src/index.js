@@ -11,6 +11,9 @@ const ordenesRouter = require('./routes/ordenes');
 const app = express();
 const PORT = process.env.PORT || 3002;
 
+// Fase 8.3 — trust proxy para rate-limit detrás de NGINX
+app.set('trust proxy', 1);
+
 app.use(securityMiddleware());
 app.use(express.json());
 

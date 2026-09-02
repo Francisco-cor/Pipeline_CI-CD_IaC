@@ -23,6 +23,8 @@ COPY --from=deps --chown=nodejs:nodejs /app/packages/shared ./packages/shared
 COPY --from=deps --chown=nodejs:nodejs /app/services/productos/package.json ./services/productos/package.json
 COPY --chown=nodejs:nodejs services/productos/src ./services/productos/src
 COPY --chown=nodejs:nodejs packages/shared/src ./packages/shared/src
+# Fase 8.2 — CA bundle para RDS TLS en prod (rejectUnauthorized:true)
+COPY --chown=nodejs:nodejs certs/rds-ca-bundle.pem /app/certs/rds-ca-bundle.pem
 
 WORKDIR /app/services/productos
 

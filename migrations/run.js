@@ -19,13 +19,37 @@ async function ensureMigrationsTable(client) {
   `);
 }
 
+function getSslConfig(connectionString) {
+  const isRds = Boolean(connectionString && connectionString.includes('amazonaws.com'));
+  if (!isRds) return false;
+  const isProd = process.env.NODE_ENV === 'production' || process.env.ENVIRONMENT === 'prod';
+  if (!isProd) return { rejectUnauthorized: false };
+  try {
+    const caInline = process.env.RDS_CA_BUNDLE;
+    if (caInline) return { rejectUnauthorized: true, ca: caInline };
+    const caPath =
+      process.env.RDS_CA_PATH || path.join(__dirname, '..', 'certs', 'rds-ca-bundle.pem');
+    const candidates = [
+      caPath,
+      '/app/certs/rds-ca-bundle.pem',
+      path.join(process.cwd(), 'certs/rds-ca-bundle.pem'),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        const ca = fs.readFileSync(p, 'utf8');
+        if (ca && ca.includes('BEGIN CERTIFICATE')) return { rejectUnauthorized: true, ca };
+      }
+    }
+    return { rejectUnauthorized: true };
+  } catch (_e) {
+    return { rejectUnauthorized: true };
+  }
+}
+
 async function runMigrations() {
   const client = new Client({
     connectionString: process.env.DATABASE_URL,
-    ssl:
-      process.env.DATABASE_URL && process.env.DATABASE_URL.includes('amazonaws.com')
-        ? { rejectUnauthorized: false }
-        : false,
+    ssl: getSslConfig(process.env.DATABASE_URL),
   });
 
   try {
