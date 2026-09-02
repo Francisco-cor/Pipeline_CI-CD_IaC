@@ -40,3 +40,18 @@ output "log_group_name" {
   description = "CloudWatch log group for ECS container logs. View with: aws logs tail <name> --follow"
   value       = module.compute.log_group_name
 }
+
+output "alb_dns_name" {
+  description = "Fase 10.4 — ALB DNS when enable_alb=true"
+  value       = module.compute.alb_dns_name
+}
+
+output "sqs_queue_url" {
+  description = "Fase 10.6 — SQS queue URL when enable_sqs=true"
+  value       = try(aws_sqs_queue.ordenes[0].url, "")
+}
+
+output "redis_endpoint" {
+  description = "Fase 10.5 — Redis endpoint when enable_redis=true"
+  value       = try(aws_elasticache_cluster.redis[0].cache_nodes[0].address, "")
+}

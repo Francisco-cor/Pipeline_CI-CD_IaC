@@ -39,6 +39,20 @@ services:
     restart: 'no'
     # No healthcheck — es init container. Compose lo considera `service_completed_successfully` si exit 0.
 
+  # Fase 10.5 — Redis para productos cache (memory fallback si no hay REDIS_URL)
+  redis:
+    image: redis:7-alpine
+    container_name: erp-redis
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   productos:
     build:
       context: .
@@ -50,6 +64,9 @@ services:
       SERVICE_NAME: svc-productos
       NODE_ENV: ${NODE_ENV:-development}
       APP_VERSION: ${APP_VERSION:-dev}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      CACHE_TTL: ${CACHE_TTL:-30}
+      CACHE_ENABLED: ${CACHE_ENABLED:-true}
     ports:
       - '${PORT_PRODUCTOS:-3001}:3001'
     depends_on:
@@ -57,6 +74,8 @@ services:
         condition: service_healthy
       migrations:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://localhost:3001/health || exit 1']
       interval: 10s
@@ -76,6 +95,11 @@ services:
       SERVICE_NAME: svc-ordenes
       NODE_ENV: ${NODE_ENV:-development}
       APP_VERSION: ${APP_VERSION:-dev}
+      PRODUCTOS_URL: ${PRODUCTOS_URL:-http://productos:3001}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL:-}
+      CIRCUIT_FAILURE_THRESHOLD: ${CIRCUIT_FAILURE_THRESHOLD:-5}
+      CIRCUIT_TIMEOUT_MS: ${CIRCUIT_TIMEOUT_MS:-10000}
+      ENABLE_SERVICE_DISCOVERY: ${ENABLE_SERVICE_DISCOVERY:-false}
     ports:
       - '${PORT_ORDENES:-3002}:3002'
     depends_on:
@@ -102,6 +126,9 @@ services:
       SERVICE_NAME: svc-stock
       NODE_ENV: ${NODE_ENV:-development}
       APP_VERSION: ${APP_VERSION:-dev}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL:-}
+      CACHE_TTL: ${CACHE_TTL:-30}
     ports:
       - '${PORT_STOCK:-3003}:3003'
     depends_on:
@@ -109,6 +136,8 @@ services:
         condition: service_healthy
       migrations:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://localhost:3003/health || exit 1']
       interval: 10s

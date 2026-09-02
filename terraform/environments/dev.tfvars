@@ -22,3 +22,12 @@ enable_service_discovery   = false
 
 # ECR mantiene al menos 5 imágenes para rollback (Fase 7.5)
 ecr_image_retention_count = 5
+
+# Fase 10 toggles — dev FinOps $0 (todos false). Toggle true solo en prod con enable_nat_gateway=true
+enable_alb               = false
+acm_certificate_arn      = ""
+enable_autoscaling       = false
+autoscaling_min_capacity = 1
+autoscaling_max_capacity = 4
+enable_redis             = false
+enable_sqs               = false

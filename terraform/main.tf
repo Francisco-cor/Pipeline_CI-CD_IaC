@@ -51,9 +51,14 @@ provider "aws" {
 }
 
 # Fase 7 — locals para prod guards (7.2) cuando var es null
+# Fase 10 — sqs url local (si enable_sqs, usa output del recurso root)
 locals {
-  is_prod                     = var.environment == "prod"
+  is_prod                       = var.environment == "prod"
   effective_deletion_protection = var.enable_deletion_protection != null ? var.enable_deletion_protection : local.is_prod
+  sqs_queue_url                 = var.enable_sqs ? try(aws_sqs_queue.ordenes[0].url, "") : ""
+  sqs_queue_arn                 = var.enable_sqs ? try(aws_sqs_queue.ordenes[0].arn, "") : ""
+  redis_endpoint                = var.enable_redis ? try(aws_elasticache_cluster.redis[0].cache_nodes[0].address, "") : ""
+  redis_url                     = var.enable_redis && local.redis_endpoint != "" ? "redis://${local.redis_endpoint}:6379" : ""
 }
 
 # -----------------------------------------------------------------------------
@@ -91,8 +96,8 @@ module "database" {
   # RDS is placed in the same subnets as ECS tasks.
   # sg_db ensures RDS is NOT reachable from the internet despite
   # being in a public subnet (see ADR-001).
-  subnet_ids                   = module.networking.public_subnet_ids
-  enable_deletion_protection   = local.effective_deletion_protection
+  subnet_ids                 = module.networking.public_subnet_ids
+  enable_deletion_protection = local.effective_deletion_protection
 }
 
 # -----------------------------------------------------------------------------
@@ -119,6 +124,7 @@ module "secrets" {
 # Module: compute (Fase 7.4 taskdef template + 7.5 ECR 5 + 7.6 service discovery)
 # Creates the ECR repository, ECS cluster, and a placeholder task definition.
 # Week 2 will replace the placeholder with the real application image via CI/CD.
+# Fase 10: ALB + autoscaling + SQS/Redis toggles
 # -----------------------------------------------------------------------------
 module "compute" {
   source = "./modules/compute"
@@ -138,10 +144,22 @@ module "compute" {
   # Networking — ECS tasks run in public subnets with public IPs (see ADR-001)
   # Fase 7.3: cuando enable_nat_gateway=true, ECS puede correr en private subnets;
   # por defecto sigue en public (FinOps). Fase 7.6: service discovery necesita vpc_id.
-  subnet_ids = module.networking.public_subnet_ids
+  # Fase 10: cuando enable_alb=true, ECS usa private subnets si existen (fallback public)
+  subnet_ids = var.enable_nat_gateway ? module.networking.private_subnet_ids : module.networking.public_subnet_ids
   sg_app_id  = module.networking.sg_app_id
   vpc_id     = module.networking.vpc_id
 
-  enable_service_discovery    = var.enable_service_discovery
-  ecr_image_retention_count   = var.ecr_image_retention_count
+  enable_service_discovery  = var.enable_service_discovery
+  ecr_image_retention_count = var.ecr_image_retention_count
+
+  # Fase 10 toggles
+  enable_alb               = var.enable_alb
+  acm_certificate_arn      = var.acm_certificate_arn
+  enable_autoscaling       = var.enable_autoscaling
+  autoscaling_min_capacity = var.autoscaling_min_capacity
+  autoscaling_max_capacity = var.autoscaling_max_capacity
+  sqs_queue_url            = local.sqs_queue_url
+  sqs_queue_arn            = local.sqs_queue_arn
+  redis_url                = local.redis_url
+  public_subnet_ids        = module.networking.public_subnet_ids
 }

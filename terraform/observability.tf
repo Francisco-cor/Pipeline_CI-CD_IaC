@@ -42,7 +42,7 @@ resource "aws_cloudwatch_log_metric_filter" "service_errors" {
     name          = "ServiceErrorCount"
     namespace     = "${var.project_name}/${var.environment}"
     value         = "1"
-    default_value = "0"  # report 0 when there are no matching log events
+    default_value = "0" # report 0 when there are no matching log events
   }
 }
 

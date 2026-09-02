@@ -31,3 +31,16 @@ output "ecr_repositories" {
   description = "Map of service name → ECR repository URL. Used by deploy.sh to push images."
   value       = { for k, v in aws_ecr_repository.services : k => v.repository_url }
 }
+
+output "alb_dns_name" {
+  description = "Fase 10.4 — ALB DNS when enable_alb=true, empty otherwise."
+  value       = var.enable_alb ? try(aws_lb.main[0].dns_name, "") : ""
+}
+
+output "alb_target_group_arn" {
+  value = var.enable_alb ? try(aws_lb_target_group.app[0].arn, "") : ""
+}
+
+output "autoscaling_enabled" {
+  value = var.enable_autoscaling
+}

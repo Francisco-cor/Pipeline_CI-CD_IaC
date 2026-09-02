@@ -90,3 +90,48 @@ variable "ecr_image_retention_count" {
     error_message = "ecr_image_retention_count must be 1..20."
   }
 }
+
+# -----------------------------------------------------------------------------
+# Fase 10 — Scale & Resilience toggles (FinOps $0 by default, prod toggle)
+# -----------------------------------------------------------------------------
+variable "enable_alb" {
+  description = "Fase 10.4 — Create ALB + target group + listener (cost ~$16/mo). False = nginx sidecar FinOps, true = ALB front. Requiere enable_nat_gateway=true para ECS private subnets recomendado."
+  type        = bool
+  default     = false
+}
+
+variable "acm_certificate_arn" {
+  description = "Fase 10.4 — ACM certificate ARN para HTTPS listener (443). Vacio = solo HTTP 80. Setear cuando enable_alb=true y dominio configurado."
+  type        = string
+  default     = ""
+}
+
+variable "enable_autoscaling" {
+  description = "Fase 10.3 — Habilita App Auto Scaling target tracking CPU 70% (y opcional ALB request count). False mantiene desired_count=1 FinOps; true escala 1-4."
+  type        = bool
+  default     = false
+}
+
+variable "autoscaling_min_capacity" {
+  description = "Fase 10.3 — min tasks cuando autoscaling habilitado."
+  type        = number
+  default     = 1
+}
+
+variable "autoscaling_max_capacity" {
+  description = "Fase 10.3 — max tasks cuando autoscaling habilitado."
+  type        = number
+  default     = 4
+}
+
+variable "enable_redis" {
+  description = "Fase 10.5 — Crea ElastiCache Redis (cache.t3.micro) en private subnets para productos list cache. False = memory fallback local (docker-compose redis). True coste ~$12/mo."
+  type        = bool
+  default     = false
+}
+
+variable "enable_sqs" {
+  description = "Fase 10.6 — Crea SQS queue para ordenes→stock async (orden.creada). False = log noop, true crea queue + DLQ. Coste $0.40/millón."
+  type        = bool
+  default     = false
+}

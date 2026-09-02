@@ -54,7 +54,10 @@
     "environment": [
       { "name": "NODE_ENV", "value": "${environment}" },
       { "name": "PORT", "value": "3001" },
-      { "name": "SERVICE_NAME", "value": "svc-productos" }
+      { "name": "SERVICE_NAME", "value": "svc-productos" },
+      { "name": "REDIS_URL", "value": "${redis_url}" },
+      { "name": "CACHE_TTL", "value": "${cache_ttl}" },
+      { "name": "CACHE_ENABLED", "value": "true" }
     ],
     "secrets": [
       { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
@@ -85,7 +88,11 @@
     "environment": [
       { "name": "NODE_ENV", "value": "${environment}" },
       { "name": "PORT", "value": "3002" },
-      { "name": "SERVICE_NAME", "value": "svc-ordenes" }
+      { "name": "SERVICE_NAME", "value": "svc-ordenes" },
+      { "name": "PRODUCTOS_URL", "value": "${productos_url}" },
+      { "name": "SQS_QUEUE_URL", "value": "${sqs_queue_url}" },
+      { "name": "CIRCUIT_FAILURE_THRESHOLD", "value": "5" },
+      { "name": "CIRCUIT_TIMEOUT_MS", "value": "10000" }
     ],
     "secrets": [
       { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
@@ -116,7 +123,10 @@
     "environment": [
       { "name": "NODE_ENV", "value": "${environment}" },
       { "name": "PORT", "value": "3003" },
-      { "name": "SERVICE_NAME", "value": "svc-stock" }
+      { "name": "SERVICE_NAME", "value": "svc-stock" },
+      { "name": "REDIS_URL", "value": "${redis_url}" },
+      { "name": "SQS_QUEUE_URL", "value": "${sqs_queue_url}" },
+      { "name": "CACHE_TTL", "value": "${cache_ttl}" }
     ],
     "secrets": [
       { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }

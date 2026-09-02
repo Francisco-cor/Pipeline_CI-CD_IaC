@@ -60,3 +60,54 @@ variable "ecr_image_retention_count" {
   type        = number
   default     = 5
 }
+
+variable "enable_alb" {
+  description = "Fase 10.4 — crea ALB + TG + listener (cost ~$16/mo). False mantiene FinOps $0."
+  type        = bool
+  default     = false
+}
+
+variable "acm_certificate_arn" {
+  description = "Fase 10.4 — ARN ACM para HTTPS 443 listener. Vacio = solo HTTP."
+  type        = string
+  default     = ""
+}
+
+variable "enable_autoscaling" {
+  description = "Fase 10.3 — habilita App Auto Scaling target tracking CPU 70%."
+  type        = bool
+  default     = false
+}
+
+variable "autoscaling_min_capacity" {
+  type    = number
+  default = 1
+}
+
+variable "autoscaling_max_capacity" {
+  type    = number
+  default = 4
+}
+
+variable "sqs_queue_url" {
+  description = "Fase 10.6 — URL SQS ordenes (vacio si enable_sqs=false)."
+  type        = string
+  default     = ""
+}
+
+variable "sqs_queue_arn" {
+  type    = string
+  default = ""
+}
+
+variable "redis_url" {
+  description = "Fase 10.5 — REDIS_URL para productos cache (vacio si enable_redis=false)."
+  type        = string
+  default     = ""
+}
+
+variable "public_subnet_ids" {
+  description = "Fase 10.4 — public subnets para ALB (requiere 2 AZ)."
+  type        = list(string)
+  default     = []
+}

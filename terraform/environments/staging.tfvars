@@ -19,3 +19,12 @@ enable_deletion_protection = false
 enable_service_discovery   = true
 
 ecr_image_retention_count = 5
+
+# Fase 10 toggles — staging replica prod toggles sin coste (ALB/autoscaling false por defecto)
+enable_alb               = false
+acm_certificate_arn      = ""
+enable_autoscaling       = false
+autoscaling_min_capacity = 1
+autoscaling_max_capacity = 4
+enable_redis             = false
+enable_sqs               = false

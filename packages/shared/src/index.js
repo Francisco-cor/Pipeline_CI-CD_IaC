@@ -3,12 +3,15 @@
 // SPDX-License-Identifier: MIT
 // Barrel export — facilita `require('@erp/shared')`
 
+const cache = require('./cache');
+const circuitBreaker = require('./circuitBreaker');
 const pool = require('./db');
 const errors = require('./errors');
 const logger = require('./logger');
 const metrics = require('./metrics');
 const middleware = require('./middleware');
 const pagination = require('./pagination');
+const queue = require('./queue');
 const tracing = require('./tracing');
 const validate = require('./validate');
 
@@ -57,4 +60,15 @@ module.exports = {
   // middleware
   securityMiddleware: middleware.securityMiddleware,
   requestIdMiddleware: middleware.requestIdMiddleware,
+
+  // cache (Fase 10.5)
+  cache,
+  // queue (Fase 10.6)
+  queue,
+  publishOrdenCreada: queue.publishOrdenCreada,
+  publishStockActualizado: queue.publishStockActualizado,
+
+  // circuit breaker (Fase 10.1)
+  CircuitBreaker: circuitBreaker.CircuitBreaker,
+  CircuitState: circuitBreaker.STATE,
 };

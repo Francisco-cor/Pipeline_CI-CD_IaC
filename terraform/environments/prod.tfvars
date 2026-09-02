@@ -20,3 +20,12 @@ enable_deletion_protection = true
 enable_service_discovery   = true
 
 ecr_image_retention_count = 5
+
+# Fase 10 toggles — prod preparado para scale; mantener false hasta migración ALB privada documentada en ADR-004
+enable_alb               = false # toggle true → crea ALB ~$16/mes + requiere enable_nat_gateway=true
+acm_certificate_arn      = ""    # setear ARN ACM cuando dominio + ALB listos
+enable_autoscaling       = false # toggle true → CPU 70% scale 1-4 (soportado sin ALB también)
+autoscaling_min_capacity = 2     # prod min 2 para HA cuando autoscaling true
+autoscaling_max_capacity = 4
+enable_redis             = false # toggle true → ElastiCache t3.micro ~$12/mes (requiere enable_nat_gateway)
+enable_sqs               = false # toggle true → SQS ordenes + DLQ $0.40/millón

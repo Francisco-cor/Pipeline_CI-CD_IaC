@@ -29,7 +29,7 @@ resource "random_password" "db_password" {
   special = true
 
   # Remove @, :, /, #, and quotes that break the connection string
-  override_special = "!$%^&*()-_=+[]{}|;.,<>" 
+  override_special = "!$%^&*()-_=+[]{}|;.,<>"
 }
 
 # -----------------------------------------------------------------------------
@@ -80,8 +80,8 @@ resource "aws_db_instance" "postgres" {
   identifier = "${var.project_name}-${var.environment}-postgres"
 
   # Engine
-  engine         = "postgres"
-  engine_version = "15"
+  engine               = "postgres"
+  engine_version       = "15"
   parameter_group_name = aws_db_parameter_group.postgres.name
 
   # Instance sizing — db.t3.micro is covered by AWS Free Tier

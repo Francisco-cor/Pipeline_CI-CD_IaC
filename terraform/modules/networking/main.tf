@@ -235,11 +235,11 @@ resource "aws_security_group" "sg_db" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description              = "PostgreSQL from app tier only"
-    from_port                = 5432
-    to_port                  = 5432
-    protocol                 = "tcp"
-    security_groups          = [aws_security_group.sg_app.id]
+    description     = "PostgreSQL from app tier only"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.sg_app.id]
   }
 
   # No egress rule = implicit deny all outbound (RDS never initiates connections)

@@ -128,6 +128,6 @@ resource "aws_cloudwatch_dashboard" "main" {
 }
 
 output "dashboard_name" {
-  description = "CloudWatch dashboard name — ver en https://console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
+  description = "CloudWatch dashboard name"
   value       = aws_cloudwatch_dashboard.main.dashboard_name
 }

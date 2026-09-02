@@ -185,6 +185,7 @@ resource "aws_ecs_task_definition" "app" {
   network_mode             = "awsvpc"
 
   # 0.5 vCPU / 1 GB — fits all 5 containers within free tier
+  # Fase 10: si enable_alb, podría necesitar más memoria para sidecars adicionales
   cpu    = 512
   memory = 1024
 
@@ -198,6 +199,12 @@ resource "aws_ecs_task_definition" "app" {
     db_secret_arn = var.db_secret_arn
     log_group     = aws_cloudwatch_log_group.ecs.name
     region        = data.aws_region.current.name
+    # Fase 10 envs
+    redis_url      = var.redis_url
+    sqs_queue_url  = var.sqs_queue_url
+    productos_url  = var.enable_service_discovery ? "http://productos.erp.local:3001" : "http://127.0.0.1:3001"
+    cache_ttl      = "30"
+    enable_tracing = "false"
   })
 
   tags = {
@@ -226,13 +233,12 @@ resource "aws_ecs_service" "app" {
   cluster         = aws_ecs_cluster.main.arn
   task_definition = aws_ecs_task_definition.app.arn
 
-  # Free tier: 1 task running.
-  # Interview answer: "To scale, change desired_count and enable the
-  # aws_appautoscaling_target block in modules/compute/main.tf (currently commented out)."
-  desired_count = 1
+  # Free tier: 1 task running. Fase 10: cuando enable_autoscaling=true, min=var.autoscaling_min_capacity, max=4, escalado por CPU 70%.
+  desired_count = var.enable_autoscaling ? var.autoscaling_min_capacity : 1
 
   # Use regular FARGATE (not SPOT) for the single task — SPOT can be interrupted,
   # which is unacceptable when desired_count = 1 (no redundancy).
+  # Fase 10: si enable_autoscaling y spot disponible, podría usar FARGATE_SPOT weight bajo.
   capacity_provider_strategy {
     capacity_provider = "FARGATE"
     weight            = 1
@@ -240,12 +246,20 @@ resource "aws_ecs_service" "app" {
   }
 
   network_configuration {
-    subnets          = var.subnet_ids
-    security_groups  = [var.sg_app_id]
-    # assign_public_ip = true is REQUIRED because we use public subnets without
-    # a NAT Gateway. ECS needs the public IP to reach ECR and Secrets Manager.
-    # See ADR-001 for the cost/security trade-off decision.
+    subnets         = var.subnet_ids
+    security_groups = [var.sg_app_id]
+    # FinOps: true para public subnets. Prod con NAT+private documentado en ADR-004 (false allí).
     assign_public_ip = true
+  }
+
+  # Fase 10.4 — ALB attachment (opcional). NGINX sigue siendo target (port 80).
+  dynamic "load_balancer" {
+    for_each = var.enable_alb ? [1] : []
+    content {
+      target_group_arn = aws_lb_target_group.app[0].arn
+      container_name   = "nginx"
+      container_port   = 80
+    }
   }
 
   # The rollback mechanism.
@@ -253,21 +267,22 @@ resource "aws_ecs_service" "app" {
   # ECS marks the deployment as failed and reverts to the previous task definition.
   deployment_circuit_breaker {
     enable   = true
-    rollback = true   # This is the automatic rollback — no script, ECS handles it
+    rollback = true # This is the automatic rollback — no script, ECS handles it
   }
 
   deployment_controller {
-    type = "ECS"  # Rolling deployment. Blue/green would use CODE_DEPLOY.
+    type = "ECS" # Rolling deployment. Blue/green would use CODE_DEPLOY.
   }
 
   # Grace period: time ECS waits before starting health check evaluation.
   # 120s covers: container startup + migrations + DB connection pool warmup,
   # with margin for cold RDS starts that previously caused false rollbacks at 60s.
+  # Fase 10 con ALB: TG health check también necesita grace.
   health_check_grace_period_seconds = 120
 
   lifecycle {
     # CI/CD updates task_definition — don't let terraform apply revert it.
-    # Also ignore desired_count — allows manual scaling without Terraform drift.
+    # Also ignore desired_count when autoscaling disabled; con autoscaling, ignore es manejado por autoscaling target.
     ignore_changes = [task_definition, desired_count]
   }
 
@@ -278,30 +293,162 @@ resource "aws_ecs_service" "app" {
   depends_on = [aws_ecs_cluster.main]
 }
 
-# --- Auto-scaling (DISABLED for free tier) ---
-#
-# Uncomment to enable. In an interview: "Auto-scaling is already designed in.
-# To activate: uncomment this block and set desired_count = 2 minimum."
-#
-# resource "aws_appautoscaling_target" "ecs_service" {
-#   max_capacity       = 4
-#   min_capacity       = 1
-#   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.app.name}"
-#   scalable_dimension = "ecs:service:DesiredCount"
-#   service_namespace  = "ecs"
-# }
-#
-# resource "aws_appautoscaling_policy" "cpu" {
-#   name               = "${var.project_name}-${var.environment}-cpu-scaling"
-#   policy_type        = "TargetTrackingScaling"
-#   resource_id        = aws_appautoscaling_target.ecs_service.resource_id
-#   scalable_dimension = aws_appautoscaling_target.ecs_service.scalable_dimension
-#   service_namespace  = aws_appautoscaling_target.ecs_service.service_namespace
-#
-#   target_tracking_scaling_policy_configuration {
-#     target_value       = 70.0
-#     predefined_metric_specification {
-#       predefined_metric_type = "ECSServiceAverageCPUUtilization"
-#     }
-#   }
-# }
+# --- Auto-scaling (Fase 10.3 — toggle var.enable_autoscaling) ---
+# FinOps false: sin auto-scaling (desired 1). Prod true: target tracking CPU 70% + memoria 80% + ALB 1000 req
+resource "aws_appautoscaling_target" "ecs" {
+  count              = var.enable_autoscaling ? 1 : 0
+  max_capacity       = var.autoscaling_max_capacity
+  min_capacity       = var.autoscaling_min_capacity
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.app.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_policy" "cpu" {
+  count              = var.enable_autoscaling ? 1 : 0
+  name               = "${var.project_name}-${var.environment}-cpu-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs[0].resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs[0].scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs[0].service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    target_value = 70.0
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+    scale_in_cooldown  = 60
+    scale_out_cooldown = 60
+  }
+}
+
+resource "aws_appautoscaling_policy" "memory" {
+  count              = var.enable_autoscaling ? 1 : 0
+  name               = "${var.project_name}-${var.environment}-mem-scaling"
+  policy_type        = "TargetTrackingScaling"
+  resource_id        = aws_appautoscaling_target.ecs[0].resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs[0].scalable_dimension
+  service_namespace  = aws_appautoscaling_target.ecs[0].service_namespace
+
+  target_tracking_scaling_policy_configuration {
+    target_value = 80.0
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageMemoryUtilization"
+    }
+    scale_in_cooldown  = 60
+    scale_out_cooldown = 60
+  }
+}
+
+# --- ALB (Fase 10.4 — toggle var.enable_alb, cost ~$16/mo) ---
+# Cuando false (default dev FinOps), no se crea nada — solo nginx sidecar.
+# Cuando true (prod), crea ALB público en public subnets + TG -> nginx:80 + listeners.
+resource "aws_security_group" "alb" {
+  count       = var.enable_alb ? 1 : 0
+  name        = "${var.project_name}-${var.environment}-sg-alb"
+  description = "ALB SG — 80/443 from internet, egress to app SG 80"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description = "HTTP from internet"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS from internet"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description     = "to app SG 80"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [var.sg_app_id]
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-sg-alb"
+  }
+}
+
+# Regla SG app: permite tráfico desde ALB SG a nginx 80 (solo cuando ALB habilitado)
+resource "aws_security_group_rule" "app_from_alb" {
+  count                    = var.enable_alb ? 1 : 0
+  type                     = "ingress"
+  from_port                = 80
+  to_port                  = 80
+  protocol                 = "tcp"
+  security_group_id        = var.sg_app_id
+  source_security_group_id = aws_security_group.alb[0].id
+  description              = "Fase 10.4 - ALB to app nginx 80"
+}
+
+resource "aws_lb" "main" {
+  count              = var.enable_alb ? 1 : 0
+  name               = "${var.project_name}-${var.environment}-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb[0].id]
+  subnets            = var.public_subnet_ids
+
+  enable_deletion_protection = false
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-alb"
+  }
+}
+
+resource "aws_lb_target_group" "app" {
+  count       = var.enable_alb ? 1 : 0
+  name        = "${var.project_name}-${var.environment}-tg"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = "/health"
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    timeout             = 5
+    interval            = 30
+    matcher             = "200"
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-tg"
+  }
+}
+
+resource "aws_lb_listener" "http" {
+  count             = var.enable_alb ? 1 : 0
+  load_balancer_arn = aws_lb.main[0].arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app[0].arn
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  count             = var.enable_alb && var.acm_certificate_arn != "" ? 1 : 0
+  load_balancer_arn = aws_lb.main[0].arn
+  port              = 443
+  protocol          = "HTTPS"
+  certificate_arn   = var.acm_certificate_arn
+  ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app[0].arn
+  }
+}
