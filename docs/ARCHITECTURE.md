@@ -82,11 +82,14 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 - **Deploy:** `pipeline.yml:679-711` `scripts/deploy.sh:1` hardened lock+digest+rollback detect (`flock`, `ecr describe-images`, `register`, `wait services-stable`, rollback check) solo si `build` OK (Fase 7.7).
 - **Teardown:** `teardown.yml:1-60` `schedule 23 UTC` + `workflow_dispatch` `confirm=destroy` + `environment=destroy` + prod guard `if: environment != prod` + `init -backend-config=environments/backend-*.hcl` + `destroy -var-file=environments/*.tfvars` (Fase 7.8).
 
-## Observabilidad
+## Observabilidad (Fase 9)
 
-- `logger.js` → stdout JSON `{timestamp,level,service,message}`; CloudWatch lo captura (`compute/main.tf:110-117`).
-- `observability.tf:34-63` metric filter `{$.level="error"}` → `ServiceErrorCount` → alarm `>10/5m` → SNS `alert_email`.
-- Fase 9 añade dashboard, p95, traces.
+- `logger.js:14` JSON `timestamp/level/service/message/requestId` via `AsyncLocalStorage` (`logger.js:14` + `middleware.js:12` `enterWith`) → CloudWatch `/ecs/*` `retention 7d dev / 90d prod` (`compute/main.tf:110`).
+- `observability.tf:34-150` metric filters `ServiceErrorCount` + `HttpLatency` (`$.ms`) + `Http5xxCount` (`$.status >=500`) → alarms `>10/5m` `p95>500ms` `5xx>10/5m` `DBConnections>80` (`AWS/RDS`) → SNS `alert_email`.
+- `dashboard.tf:10` 6 widgets CPU/Mem/Error/Latency p95/5xx/DB conns + log table `filter level=error` → `erp-pipeline-{env}-overview`.
+- `metrics.js:20` `prom-client` `http_request_duration_ms` histogram + `http_requests_total` + `http_active_requests` + EMF `HttpLatency` → `GET /metrics` (`services/*/src/index.js:14` + `nginx.conf:45`).
+- `tracing.js:20` OTel `NodeSDK` `auto-instrumentations` `OTLPTraceExporter` `OTEL_ENABLED` + `TRACE_SAMPLE_RATIO 0.1` → X-Ray/Jaeger `http://localhost:4318/v1/traces` (`services/*/src/index.js:3` `initTracing`).
+- `health.js:60` `/health/details` `pool {totalCount,idleCount,waitingCount}` + `uptime` + `memory` + `version` + `requestId`.
 
 ## Seguridad (Fase 8)
 
@@ -104,12 +107,14 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 
 ## Roadmap
 
-Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → production-grade. **Fases 1-8 completadas:** higiene (1) → compose+monorepo (2) → hardening API (3) → testing (4) → datos enterprise (5) → CI (6) → infra multi-env (7) → sec profunda (8). Siguiente: Fase 9 obs (dashboard p95 + X-Ray) + Fase 10 scale (ALB toggle).
+Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → production-grade. **Fases 1-9 completadas:** higiene (1) → compose+monorepo (2) → hardening API (3) → testing (4) → datos enterprise (5) → CI (6) → infra multi-env (7) → sec profunda (8) → observabilidad (9). Siguiente: Fase 10 scale (ALB toggle + private subnets) + Fase 11 polish (BFF, frontend, badges).
 
-## Runbooks (Fase 7.9 + 8.6)
+## Runbooks (Fase 7.9 + 8.6 + 9.8)
 
 - `docs/runbooks/deploy.md:1` — deploy normal + `deploy.sh` verificación digest + lock
 - `docs/runbooks/rollback.md:1` — rollback automático circuit breaker vs manual `IMAGE_TAG=sha-prev`
 - `docs/runbooks/drift.md:1` — drift `plan -var-file=environments/*.tfvars` + `ignore_changes` de `task_definition`
 - `docs/security/rotation.md:1` — OIDC thumbprint + SSM/RDS password rotation (Fase 8.6)
 - `docs/adr/ADR-003-waf.md:1` — WAF toggle cuando `enable_alb=true` (Fase 8.8)
+- `docs/observability.md:1` — logs Insights + metrics/prom + dashboard + tracing + health/details (Fase 9.8)
+- `docs/runbooks/alert.md:1` — triage <5m dashboard→logs→health→traces→rollback (Fase 9.8)

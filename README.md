@@ -142,11 +142,18 @@ The system comes with industrial seed data (BOM). Below are examples of the JSON
 
 ---
 
-## Monitoring
+## Monitoring & Observability (Fase 9)
 
-Application logs and performance metrics are centralized in CloudWatch.
+Logs, métricas, traces y health sin `ssh` — ver `docs/observability.md:1` y `terraform/dashboard.tf:10`:
 
-![CloudWatch Monitoring](docs/screenshots/cloudwatch.png)
+- **Logs:** JSON `requestId` (`logger.js:14` `AsyncLocalStorage` + `middleware.js:12` `enterWith`) → CloudWatch `/ecs/erp-pipeline-{env}` `retention 7d dev / 90d prod` (`compute/main.tf:110`). Queries Insights `filter level=error | stats by service` + `filter requestId=xxx`.
+- **Métricas:** `prom-client` `http_request_duration_ms` histogram + `http_requests_total` (`metrics.js:20`) + EMF `HttpLatency` → CloudWatch Metrics `erp-pipeline/{env}` + `GET /metrics` (`services/productos/src/index.js:14` + `nginx.conf:45`).
+- **Dashboard:** 6 widgets CPU/Mem/Error/Latency p95/5xx/DB conns + log table (`dashboard.tf:10`) `erp-pipeline-{env}-overview` `$3/mes`.
+- **Alarmas:** `ServiceErrorCount>10/5m` + `p95>500ms` + `5xx>10/5m` + `DBConnections>80` → SNS `alert_email` (`observability.tf:49`).
+- **Tracing:** OTel `NodeSDK` + `auto-instrumentations` + `OTLPTraceExporter` `OTEL_ENABLED=true` → `http://localhost:4318/v1/traces` (`tracing.js:20`).
+- **Health:** `/health/details` `pool {totalCount,idleCount,waitingCount}` + `uptime` + `memory` (`health.js:60`).
+
+![CloudWatch Monitoring](docs/screenshots/cloudwatch.png) _→ ahora con dashboard Fase 9 + Insights_
 
 ---
 
