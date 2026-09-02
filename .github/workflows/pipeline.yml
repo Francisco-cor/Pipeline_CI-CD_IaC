@@ -541,7 +541,7 @@ jobs:
       # --- productos ---
       - name: Build & push productos
         if: needs.changes.outputs.productos == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: services/productos/Dockerfile
@@ -561,7 +561,7 @@ jobs:
       # --- ordenes ---
       - name: Build & push ordenes
         if: needs.changes.outputs.ordenes == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: services/ordenes/Dockerfile
@@ -581,7 +581,7 @@ jobs:
       # --- stock ---
       - name: Build & push stock
         if: needs.changes.outputs.stock == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: services/stock/Dockerfile
@@ -601,7 +601,7 @@ jobs:
       # --- nginx ---
       - name: Build & push nginx
         if: needs.changes.outputs.nginx == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: nginx
           file: nginx/Dockerfile
@@ -621,7 +621,7 @@ jobs:
       # --- migrations ---
       - name: Build & push migrations
         if: needs.changes.outputs.migrations == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: migrations
           file: migrations/Dockerfile
