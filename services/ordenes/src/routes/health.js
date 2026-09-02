@@ -57,4 +57,34 @@ router.get('/ready', async (req, res) => {
   }
 });
 
+router.get('/details', async (req, res) => {
+  const start = Date.now();
+  let dbStatus = 'unknown';
+  let latencyMs;
+  try {
+    await pool.query('SELECT 1');
+    latencyMs = Date.now() - start;
+    dbStatus = 'connected';
+  } catch (err) {
+    latencyMs = Date.now() - start;
+    dbStatus = 'disconnected';
+  }
+  const poolStats = {
+    totalCount: pool.totalCount,
+    idleCount: pool.idleCount,
+    waitingCount: pool.waitingCount,
+  };
+  res.json({
+    status: dbStatus === 'connected' ? 'ok' : 'error',
+    service: process.env.SERVICE_NAME || 'svc-ordenes',
+    db: dbStatus,
+    latency_ms: latencyMs,
+    uptime_s: Math.floor(process.uptime()),
+    memory: process.memoryUsage(),
+    pool: poolStats,
+    version: process.env.APP_VERSION || 'dev',
+    requestId: req.id,
+  });
+});
+
 module.exports = router;

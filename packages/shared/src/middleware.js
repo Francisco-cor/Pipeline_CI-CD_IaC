@@ -9,11 +9,15 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const { v4: uuidv4 } = require('uuid');
 
+const { storage } = require('./logger');
+
 function requestIdMiddleware(req, _res, next) {
   const incoming = req.headers['x-request-id'];
   const id = typeof incoming === 'string' && incoming.length > 0 ? incoming : uuidv4();
   req.id = id;
-  // expose to response
+  // Fase 9.1 — guarda en AsyncLocalStorage para que logger lo incluya automáticamente
+  storage.enterWith({ requestId: id });
+  // expose to response (también lo hace securityMiddleware, pero lo dejamos aquí para standalone use)
   req.headers['x-request-id'] = id;
   next();
 }

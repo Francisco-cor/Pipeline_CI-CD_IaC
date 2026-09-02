@@ -105,11 +105,11 @@ resource "aws_ecs_cluster_capacity_providers" "main" {
   }
 }
 
-# --- CloudWatch Log Group ---
+# --- CloudWatch Log Group (Fase 9.2 â€” retention per env) ---
 
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${var.project_name}-${var.environment}"
-  retention_in_days = 30
+  retention_in_days = var.environment == "prod" ? 90 : var.environment == "staging" ? 14 : 7
 
   tags = {
     Name = "/ecs/${var.project_name}-${var.environment}"
@@ -117,15 +117,15 @@ resource "aws_cloudwatch_log_group" "ecs" {
 }
 
 
-# --- Service Discovery (Cloud Map) — Fase 7.6 ---
+# --- Service Discovery (Cloud Map) ï¿½ Fase 7.6 ---
 # Private DNS namespace erp.local para http://productos.erp.local:3001 etc.
 # Habilitado solo si var.enable_service_discovery=true (staging/prod).
-# En dev (false) no se crea nada — coste $0. Fase 10 usara esto para
+# En dev (false) no se crea nada ï¿½ coste $0. Fase 10 usara esto para
 # desacoplar ordenes->productos via HTTP con circuit breaker en vez de SELECT directo.
 resource "aws_service_discovery_private_dns_namespace" "erp" {
   count       = var.enable_service_discovery ? 1 : 0
   name        = "erp.local"
-  description = "Fase 7.6 — Cloud Map private DNS for ${var.project_name} ${var.environment}"
+  description = "Fase 7.6 ï¿½ Cloud Map private DNS for ${var.project_name} ${var.environment}"
   vpc         = var.vpc_id
   tags = {
     Name = "${var.project_name}-${var.environment}-erp-local"

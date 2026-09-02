@@ -1,7 +1,16 @@
 'use strict';
 
-const { securityMiddleware, errorHandler, notFoundHandler } = require('@erp/shared');
+const {
+  errorHandler,
+  initTracing,
+  metricsHandler,
+  metricsMiddleware,
+  notFoundHandler,
+  securityMiddleware,
+} = require('@erp/shared');
 const express = require('express');
+
+initTracing(process.env.SERVICE_NAME || 'svc-ordenes');
 
 const pool = require('./db');
 const logger = require('./logger');
@@ -15,6 +24,7 @@ const PORT = process.env.PORT || 3002;
 app.set('trust proxy', 1);
 
 app.use(securityMiddleware());
+app.use(metricsMiddleware);
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -42,6 +52,8 @@ app.get('/', (req, res) => {
 app.use('/health', healthRouter);
 app.use('/api/v1/health', healthRouter);
 app.use('/api/health', healthRouter);
+
+app.get('/metrics', metricsHandler);
 
 app.use('/ordenes', ordenesRouter);
 app.use('/api/ordenes', ordenesRouter);

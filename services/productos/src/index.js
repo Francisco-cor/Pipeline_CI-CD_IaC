@@ -1,7 +1,16 @@
 'use strict';
 
-const { securityMiddleware, errorHandler, notFoundHandler } = require('@erp/shared');
+const {
+  errorHandler,
+  initTracing,
+  metricsHandler,
+  metricsMiddleware,
+  notFoundHandler,
+  securityMiddleware,
+} = require('@erp/shared');
 const express = require('express');
+
+initTracing(process.env.SERVICE_NAME || 'svc-productos');
 
 const pool = require('./db');
 const logger = require('./logger');
@@ -16,6 +25,8 @@ app.set('trust proxy', 1);
 
 // Security + compression + requestId (Fase 3.5) + rate-limit (Fase 8.3)
 app.use(securityMiddleware());
+// Fase 9.3 — metrics (prom-client + EMF) — antes de json parser para capturar todo
+app.use(metricsMiddleware);
 app.use(express.json());
 
 // Log every request so CloudWatch has method/path/status/duration per entry.
@@ -47,6 +58,9 @@ app.use('/health', healthRouter);
 // Also mount versioned health for /api/v1 prefix symmetry (Fase 3.2)
 app.use('/api/v1/health', healthRouter);
 app.use('/api/health', healthRouter);
+
+// Metrics (Fase 9.3) — /metrics expone prom-client, no pasa por paginación/validación
+app.get('/metrics', metricsHandler);
 
 // Productos — compat + versioned (Fase 3.2)
 app.use('/productos', productosRouter);
