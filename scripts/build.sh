@@ -28,12 +28,22 @@ IMAGE_TAG="sha-${GIT_SHA}"
 
 SERVICES=("productos" "ordenes" "stock" "nginx" "migrations")
 
+# Fase 2: servicios usan root context para incluir packages/shared (monorepo).
+# nginx/migrations mantienen contexto propio.
 declare -A BUILD_CONTEXTS=(
-  [productos]="services/productos"
-  [ordenes]="services/ordenes"
-  [stock]="services/stock"
+  [productos]="."
+  [ordenes]="."
+  [stock]="."
   [nginx]="nginx"
   [migrations]="migrations"
+)
+
+declare -A DOCKERFILES=(
+  [productos]="services/productos/Dockerfile"
+  [ordenes]="services/ordenes/Dockerfile"
+  [stock]="services/stock/Dockerfile"
+  [nginx]="nginx/Dockerfile"
+  [migrations]="migrations/Dockerfile"
 )
 
 echo "=== Build: ${PROJECT_NAME} @ ${IMAGE_TAG} ==="
@@ -56,16 +66,17 @@ echo "[2/2] Building and pushing images..."
 
 for service in "${SERVICES[@]}"; do
   context="${BUILD_CONTEXTS[$service]}"
+  dockerfile="${DOCKERFILES[$service]}"
   image_base="${ECR_BASE}/${PROJECT_NAME}-${service}"
 
   echo ""
-  echo "  Building ${service} from ${context}/..."
+  echo "  Building ${service} from ${context} (dockerfile ${dockerfile})..."
   docker build \
     --tag "${image_base}:${IMAGE_TAG}" \
     --tag "${image_base}:latest" \
     --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --build-arg GIT_SHA="${GIT_SHA}" \
-    --file "${context}/Dockerfile" \
+    --file "${dockerfile}" \
     "${context}"
 
   echo "  Pushing ${service}:${IMAGE_TAG}..."

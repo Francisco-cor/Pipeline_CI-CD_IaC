@@ -1,23 +1,8 @@
 'use strict';
 
-// Structured JSON logger — CloudWatch captures stdout and parses JSON fields.
-// Using { level, message, ... } lets CloudWatch Logs metric filters match on
-// { $.level = "error" } to power the high-error-rate alarm in observability.tf.
+// Re-export shared logger with service-specific instance.
+// Fase 2: shared kernel — elimina duplicación de logger.js:7-17.
 
-const log = (level, message, extra = {}) => {
-  process.stdout.write(
-    JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level,
-      service: process.env.SERVICE_NAME || 'svc-productos',
-      message,
-      ...extra,
-    }) + '\n'
-  );
-};
+const { createLogger } = require('@erp/shared');
 
-module.exports = {
-  info: (msg, extra) => log('info', msg, extra),
-  warn: (msg, extra) => log('warn', msg, extra),
-  error: (msg, extra) => log('error', msg, extra),
-};
+module.exports = createLogger('svc-productos');
