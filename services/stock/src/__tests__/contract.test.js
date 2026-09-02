@@ -31,7 +31,9 @@ describe('Contract — OpenAPI (stock)', () => {
   });
 
   it('POST 400 tipo enum', async () => {
-    const res = await request(app).post('/stock').send({ producto_id: 1, cantidad: 1, tipo: 'bad' });
+    const res = await request(app)
+      .post('/stock')
+      .send({ producto_id: 1, cantidad: 1, tipo: 'bad' });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });

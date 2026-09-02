@@ -11,7 +11,10 @@ let productoId;
 beforeAll(async () => {
   // Ensure at least one producto exists for FK
   const p = productoFactory();
-  await request(app).post('/ordenes').send({ producto_id: 999999, cantidad: 1, total: 10 }).catch(() => {});
+  await request(app)
+    .post('/ordenes')
+    .send({ producto_id: 999999, cantidad: 1, total: 10 })
+    .catch(() => {});
   // Create real producto via productos service DB directly if ordenes cannot create producto
   // Instead insert via productos pool (same DB)
   const { rows } = await pool.query(
@@ -34,7 +37,9 @@ describe('Ordenes API — CRUD + validation', () => {
     });
 
     it('400 when cantidad is 0', async () => {
-      const res = await request(app).post('/ordenes').send({ producto_id: productoId, cantidad: 0, total: 10 });
+      const res = await request(app)
+        .post('/ordenes')
+        .send({ producto_id: productoId, cantidad: 0, total: 10 });
       expect(res.status).toBe(400);
     });
 
@@ -54,12 +59,16 @@ describe('Ordenes API — CRUD + validation', () => {
     });
 
     it('400 when total negative', async () => {
-      const res = await request(app).post('/ordenes').send({ producto_id: productoId, cantidad: 1, total: -5 });
+      const res = await request(app)
+        .post('/ordenes')
+        .send({ producto_id: productoId, cantidad: 1, total: -5 });
       expect(res.status).toBe(400);
     });
 
     it('coerces string numbers', async () => {
-      const res = await request(app).post('/ordenes').send({ producto_id: String(productoId), cantidad: '2', total: '20.5' });
+      const res = await request(app)
+        .post('/ordenes')
+        .send({ producto_id: String(productoId), cantidad: '2', total: '20.5' });
       expect(res.status).toBe(201);
     });
   });

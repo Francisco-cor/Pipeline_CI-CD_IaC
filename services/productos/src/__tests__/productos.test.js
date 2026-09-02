@@ -36,7 +36,9 @@ describe('Productos API — CRUD + validation (Fase 3 & 4)', () => {
     });
 
     it('201 with precio 0 and stock 0 (falsy fix)', async () => {
-      const res = await request(app).post('/productos').send({ nombre: 'Free', precio: 0, stock: 0 });
+      const res = await request(app)
+        .post('/productos')
+        .send({ nombre: 'Free', precio: 0, stock: 0 });
       expect(res.status).toBe(201);
       expect(Number(res.body.data.precio)).toBe(0);
       expect(res.body.data.stock).toBe(0);
@@ -49,13 +51,17 @@ describe('Productos API — CRUD + validation (Fase 3 & 4)', () => {
     });
 
     it('201 with stock as string coerce', async () => {
-      const res = await request(app).post('/productos').send({ nombre: 'CoerceStock', precio: 10, stock: '5' });
+      const res = await request(app)
+        .post('/productos')
+        .send({ nombre: 'CoerceStock', precio: 10, stock: '5' });
       expect(res.status).toBe(201);
       expect(res.body.data.stock).toBe(5);
     });
 
     it('400 when stock negative', async () => {
-      const res = await request(app).post('/productos').send({ nombre: 'BadStock', precio: 10, stock: -1 });
+      const res = await request(app)
+        .post('/productos')
+        .send({ nombre: 'BadStock', precio: 10, stock: -1 });
       expect(res.status).toBe(400);
     });
 

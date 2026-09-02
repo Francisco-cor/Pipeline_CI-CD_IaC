@@ -30,7 +30,9 @@ describe('Stock API — CRUD + validation', () => {
     });
 
     it('400 when tipo invalid', async () => {
-      const res = await request(app).post('/stock').send({ producto_id: productoId, cantidad: 5, tipo: 'invalido' });
+      const res = await request(app)
+        .post('/stock')
+        .send({ producto_id: productoId, cantidad: 5, tipo: 'invalido' });
       expect(res.status).toBe(400);
     });
 
@@ -49,12 +51,16 @@ describe('Stock API — CRUD + validation', () => {
     });
 
     it('400 when cantidad 0', async () => {
-      const res = await request(app).post('/stock').send({ producto_id: productoId, cantidad: 0, tipo: 'entrada' });
+      const res = await request(app)
+        .post('/stock')
+        .send({ producto_id: productoId, cantidad: 0, tipo: 'entrada' });
       expect(res.status).toBe(400);
     });
 
     it('coerces string cantidad', async () => {
-      const res = await request(app).post('/stock').send({ producto_id: String(productoId), cantidad: '3', tipo: 'entrada' });
+      const res = await request(app)
+        .post('/stock')
+        .send({ producto_id: String(productoId), cantidad: '3', tipo: 'entrada' });
       expect(res.status).toBe(201);
     });
   });

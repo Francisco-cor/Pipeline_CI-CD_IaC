@@ -32,7 +32,9 @@ describe('Contract — OpenAPI (ordenes)', () => {
   });
 
   it('POST 404 FK matches Error', async () => {
-    const res = await request(app).post('/ordenes').send({ producto_id: 999999, cantidad: 1, total: 10 });
+    const res = await request(app)
+      .post('/ordenes')
+      .send({ producto_id: 999999, cantidad: 1, total: 10 });
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
   });
