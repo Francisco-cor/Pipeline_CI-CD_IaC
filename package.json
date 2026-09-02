@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "erp-pipeline-root",
-  "version": "1.0.0",
+  "version": "1.11.0",
   "description": "Root workspace for ERP Pipeline — shared lint/format. See services/*/package.json",
   "workspaces": [
     "services/*",
