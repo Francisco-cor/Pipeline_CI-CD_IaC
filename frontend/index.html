@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ERP Pipeline — Dashboard (Fase 11)</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header>
+  <h1>ERP Pipeline <small>— Fase 11 dashboard</small></h1>
+  <span class="badge">FinOps $0 → Prod toggle</span>
+  <span class="badge">BFF include=producto</span>
+  <span class="badge ok">cache X-Cache</span>
+  <div class="controls">
+    <input id="apiInput" placeholder="http://localhost:80" style="width:210px" />
+    <button id="apiSave">set API</button>
+    <button id="btnRefresh">refresh</button>
+  </div>
+</header>
+
+<div style="max-width:1100px;margin:10px auto;padding:0 16px" class="muted">API_BASE: <code id="apiBase"></code> • <a href="https://github.com/Francisco-cor/Pipeline_CI-CD_IaC" target="_blank">GitHub</a> • <a href="/docs/openapi.yaml" target="_blank">OpenAPI</a> • <a href="/docs/interview.md" target="_blank">interview</a></div>
+
+<main>
+  <section class="card">
+    <h2>Health — nginx → servicios</h2>
+    <div id="health" class="muted">cargando…</div>
+  </section>
+
+  <section class="card">
+    <h2>Productos — cache + paginación</h2>
+    <div id="prodCache" class="muted">X-Cache —</div>
+    <table id="prodTable"></table>
+    <form id="prodForm" class="row" style="margin-top:8px">
+      <input name="nombre" placeholder="nombre *" required style="flex:1" />
+      <input name="precio" placeholder="precio 0" type="number" step="0.01" value="12.5" style="width:90px" />
+      <input name="stock" placeholder="stock" type="number" value="3" style="width:70px" />
+      <button type="submit">+ crear</button>
+    </form>
+    <div class="muted">POST /api/v1/productos → invalida <code>productos:list:*</code> + <code>X-Cache MISS</code> luego <code>HIT</code></div>
+  </section>
+
+  <section class="card">
+    <h2>Ordenes — FK + BFF aggregation</h2>
+    <table id="ordenTable"></table>
+    <form id="ordenForm" class="row" style="margin-top:8px">
+      <select id="ordenProdId" name="producto_id" style="flex:1"></select>
+      <input name="cantidad" placeholder="cant" type="number" value="2" style="width:70px" />
+      <input name="total" placeholder="total" type="number" step="0.01" value="25" style="width:90px" />
+      <button type="submit">+ orden</button>
+    </form>
+    <div class="muted">POST /api/v1/ordenes verifica `PRODUCTOS_URL` HTTP + circuit breaker fallback DB (Fase 10.1). 404 si producto inexistente.</div>
+    <pre id="bffBox" class="muted" style="margin-top:8px">BFF: click “include” en una orden → GET /api/v1/ordenes/:id?include=producto
++ GET /api/v1/bff/ordenes/:id (gateway opcional --profile gateway)</pre>
+  </section>
+
+  <section class="card">
+    <h2>Stock — TX + invariant</h2>
+    <table id="stockTable"></table>
+    <form id="stockForm" class="row" style="margin-top:8px">
+      <select id="stockProdId" name="producto_id" style="flex:1"></select>
+      <input name="cantidad" placeholder="cant" type="number" value="5" style="width:70px" />
+      <select name="tipo"><option value="entrada">entrada</option><option value="salida">salida</option></select>
+      <button type="submit">+ mov</button>
+    </form>
+    <div class="muted">POST /api/v1/stock <code>BEGIN ... FOR UPDATE</code> + trigger 005 → <code>409 STOCK_CONFLICT</code> si salida &gt; stock. Invalida cache productos.</div>
+  </section>
+
+  <section class="card" style="grid-column:1 / -1">
+    <h2>Observabilidad & Scale — links</h2>
+    <div class="kv">
+      <b>health/details</b><span><code>GET /health/details</code> pool {total,idle,waiting} + <code>uptime_s</code> + <code>memory</code> (Fase 9.7) • <a href="#" onclick="api('/api/v1/productos/health/details').then(r=>alert(JSON.stringify(r.body,null,2)));return false">ver</a></span>
+      <b>metrics</b><span><code>GET /metrics</code> <code>http_request_duration_ms</code> + <code>http_requests_total</code> (Fase 9.3) • <a href="http://localhost:3001/metrics" target="_blank">productos:3001/metrics</a></span>
+      <b>tracing</b><span><code>OTEL_ENABLED=true</code> → <code>http://localhost:4318/v1/traces</code> Jaeger <code>http://localhost:16686</code> (Fase 9.6)</span>
+      <b>cache</b><span><code>REDIS_URL=redis://redis:6379</code> → <code>X-Cache HIT/MISS</code> (Fase 10.5)</span>
+      <b>circuit</b><span><code>GET /api/v1/ordenes/_circuit</code> stats CLOSED/OPEN (Fase 10.1)</span>
+      <b>ALB</b><span><code>enable_alb=true</code> → ALB <code>aws_lb</code> + TG <code>ip:80 /health</code> (Fase 10.4)</span>
+      <b>autoscale</b><span><code>enable_autoscaling</code> CPU 70% 1-4 (Fase 10.3)</span>
+      <b>chaos</b><span><code>./scripts/chaos.sh</code> + <code>k6 run scripts/k6/resilience.js</code> (Fase 10.7)</span>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: MIT
+# release.yml — Fase 11.6 semantic-release on push to main (tags v* + CHANGELOG + GitHub release)
+# Usa Node 20, OIDC no necesario — GITHUB_TOKEN con contents:write + pull-requests:write
+# Alternativa release-please: este workflow usa semantic-release directo (conventional-changelog angular)
+
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint -- --cache --cache-location .eslintcache
+      - run: npx prettier --check "services/*/src/**/*.js" "packages/*/src/**/*.js" "migrations/**/*.js"
+
+      - name: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+
+      - name: verify tag created
+        run: git tag --list 'v*' | tail -n 5; echo "release workflow done"

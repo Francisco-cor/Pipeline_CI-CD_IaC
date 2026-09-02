@@ -155,4 +155,68 @@ router.get('/_circuit', (req, res) => {
   res.json(breaker.getStats());
 });
 
+// GET /ordenes/:id — single + BFF aggregation ?include=producto (Fase 11.1)
+router.get('/:id', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'id must be positive integer');
+    }
+    const { rows } = await pool.query('SELECT * FROM ordenes WHERE id = $1', [id]);
+    if (rows.length === 0) throw new AppError(404, 'NOT_FOUND', `orden ${id} not found`);
+    const orden = rows[0];
+
+    // BFF aggregation: ?include=producto → fetch producto via HTTP circuit breaker (Fase 10.1) + embed
+    const include = String(req.query.include || '').toLowerCase();
+    if (include === 'producto' || include === 'product' || include === 'true') {
+      try {
+        const fetched = await breaker.fire(orden.producto_id, req.id);
+        // fetched = { exists, data } o null si no PRODUCTOS_URL
+        if (fetched && fetched.exists) {
+          return res.json({
+            data: orden,
+            producto: fetched.data,
+            _bff: 'orden+producto aggregated',
+          });
+        }
+        if (fetched && !fetched.exists) {
+          return res.json({
+            data: orden,
+            producto: null,
+            warning: `producto ${orden.producto_id} not found`,
+          });
+        }
+        // fallback sin PRODUCTOS_URL → DB direct
+        const { rows: prodRows } = await pool.query('SELECT * FROM productos WHERE id = $1', [
+          orden.producto_id,
+        ]);
+        return res.json({
+          data: orden,
+          producto: prodRows[0] || null,
+          _bff: 'orden+producto aggregated (db fallback)',
+        });
+      } catch (bffErr) {
+        // Si circuit OPEN o fetch fails, degradar sin producto pero no 500
+        const logger = require('../logger');
+        logger.warn('bff_include_producto_failed', {
+          orden_id: id,
+          producto_id: orden.producto_id,
+          error: bffErr.message,
+          state: breaker.getState(),
+        });
+        return res.json({
+          data: orden,
+          producto: null,
+          warning: 'producto fetch failed, circuit fallback',
+          _bff: 'degraded',
+        });
+      }
+    }
+
+    res.json({ data: orden });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

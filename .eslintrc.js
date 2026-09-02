@@ -58,5 +58,21 @@ module.exports = {
         'no-console': 'off',
       },
     },
+    {
+      files: ['frontend/**/*.js'],
+      env: { browser: true, es2021: true, node: false },
+      globals: { fetch: 'readonly' },
+      rules: {
+        'no-undef': 'off',
+        'no-console': 'off',
+        'import/no-unresolved': 'off',
+      },
+    },
+    {
+      files: ['services/gateway/**/*.js'],
+      rules: {
+        'import/order': 'off',
+      },
+    },
   ],
 };

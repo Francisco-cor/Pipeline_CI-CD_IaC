@@ -170,6 +170,55 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Fase 11.1 — BFF gateway (optional) — docker compose --profile gateway up
+  # No arranca por defecto (FinOps). Activa con: docker compose --profile gateway up --build
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: erp-gateway
+    profiles: ["gateway"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-erpadmin}:${POSTGRES_PASSWORD:-test_password}@postgres:5432/${POSTGRES_DB:-erpdb}
+      PORT: ${PORT_GATEWAY:-3004}
+      SERVICE_NAME: svc-gateway
+      NODE_ENV: ${NODE_ENV:-development}
+      APP_VERSION: ${APP_VERSION:-dev}
+      ORDENES_URL: ${ORDENES_URL:-http://ordenes:3002}
+      PRODUCTOS_URL: ${PRODUCTOS_URL:-http://productos:3001}
+    ports:
+      - '${PORT_GATEWAY:-3004}:3004'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      productos:
+        condition: service_healthy
+      ordenes:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3004/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # Fase 11.2 — frontend static dashboard (optional) — docker compose --profile frontend up
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: erp-frontend
+    profiles: ["frontend"]
+    ports:
+      - '${FRONTEND_PORT:-8080}:8080'
+    depends_on:
+      nginx:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
     driver: local

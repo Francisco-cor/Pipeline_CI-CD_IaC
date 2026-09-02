@@ -1,0 +1,94 @@
+'use strict';
+
+const express = require('express');
+
+const pool = require('../db');
+const logger = require('../logger');
+
+const router = express.Router();
+
+// GET /health — readiness (DB check) — ECS uses this
+router.get('/', async (req, res) => {
+  try {
+    const start = Date.now();
+    await pool.query('SELECT 1');
+    res.json({
+      status: 'ok',
+      service: process.env.SERVICE_NAME || 'svc-productos',
+      db: 'connected',
+      latency_ms: Date.now() - start,
+      uptime_s: Math.floor(process.uptime()),
+    });
+  } catch (err) {
+    logger.error('Health check failed — DB unreachable', { error: err.message, requestId: req.id });
+    res.status(500).json({
+      status: 'error',
+      service: process.env.SERVICE_NAME || 'svc-productos',
+      db: 'disconnected',
+    });
+  }
+});
+
+// GET /health/live — liveness (no DB) — Fase 3.8
+router.get('/live', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: process.env.SERVICE_NAME || 'svc-productos',
+    uptime_s: Math.floor(process.uptime()),
+  });
+});
+
+// GET /health/ready — alias to /health (readiness)
+router.get('/ready', async (req, res) => {
+  try {
+    const start = Date.now();
+    await pool.query('SELECT 1');
+    res.json({
+      status: 'ok',
+      service: process.env.SERVICE_NAME || 'svc-productos',
+      db: 'connected',
+      latency_ms: Date.now() - start,
+      uptime_s: Math.floor(process.uptime()),
+    });
+  } catch (err) {
+    logger.error('Health ready failed', { error: err.message, requestId: req.id });
+    res.status(500).json({
+      status: 'error',
+      service: process.env.SERVICE_NAME || 'svc-productos',
+      db: 'disconnected',
+    });
+  }
+});
+
+// GET /health/details — Fase 9.7 pool stats + uptime + memory
+router.get('/details', async (req, res) => {
+  const start = Date.now();
+  let dbStatus = 'unknown';
+  let latencyMs;
+  try {
+    await pool.query('SELECT 1');
+    latencyMs = Date.now() - start;
+    dbStatus = 'connected';
+  } catch (err) {
+    latencyMs = Date.now() - start;
+    dbStatus = 'disconnected';
+  }
+  const poolStats = {
+    totalCount: pool.totalCount,
+    idleCount: pool.idleCount,
+    waitingCount: pool.waitingCount,
+  };
+  res.json({
+    status: dbStatus === 'connected' ? 'ok' : 'error',
+    service: process.env.SERVICE_NAME || 'svc-productos',
+    db: dbStatus,
+    latency_ms: latencyMs,
+    uptime_s: Math.floor(process.uptime()),
+    memory: process.memoryUsage(),
+    pool: poolStats,
+    version: process.env.APP_VERSION || 'dev',
+    requestId: req.id,
+  });
+});
+
+module.exports = router;
