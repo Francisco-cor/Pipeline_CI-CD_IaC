@@ -1,5 +1,6 @@
 'use strict';
 
+const { securityMiddleware, errorHandler, notFoundHandler } = require('@erp/shared');
 const express = require('express');
 
 const pool = require('./db');
@@ -10,9 +11,9 @@ const ordenesRouter = require('./routes/ordenes');
 const app = express();
 const PORT = process.env.PORT || 3002;
 
+app.use(securityMiddleware());
 app.use(express.json());
 
-// Log every request so CloudWatch has method/path/status/duration per entry.
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
@@ -21,12 +22,12 @@ app.use((req, res, next) => {
       path: req.path,
       status: res.statusCode,
       ms: Date.now() - start,
+      requestId: req.id,
     });
   });
   next();
 });
 
-// Routes
 app.get('/', (req, res) => {
   res.json({
     service: 'svc-ordenes',
@@ -34,14 +35,23 @@ app.get('/', (req, res) => {
     status: 'running',
   });
 });
+
 app.use('/health', healthRouter);
+app.use('/api/v1/health', healthRouter);
+app.use('/api/health', healthRouter);
+
 app.use('/ordenes', ordenesRouter);
+app.use('/api/ordenes', ordenesRouter);
+app.use('/api/v1/ordenes', ordenesRouter);
+
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 module.exports = app;
 
 if (require.main === module) {
   const server = app.listen(PORT, '0.0.0.0', () => {
-    logger.info(`svc-ordenes listening`, { port: PORT });
+    logger.info('svc-ordenes listening', { port: PORT });
   });
 
   process.on('SIGTERM', () => {

@@ -1,39 +1,52 @@
+'use strict';
+
+const {
+  validate,
+  stockSchema,
+  parsePagination,
+  setPaginationHeaders,
+  sortToOrderBy,
+} = require('@erp/shared');
 const express = require('express');
 
 const pool = require('../db');
+
 const router = express.Router();
 
-// GET /stock - list all stock movements
-// Returns up to 50 most recent movements, newest first.
-router.get('/', async (req, res) => {
+// GET /stock — paginated
+router.get('/', async (req, res, next) => {
   try {
+    const { page, limit, offset, sort } = parsePagination(req);
+    const orderBy = sortToOrderBy(sort);
+
+    const totalResult = await pool.query('SELECT COUNT(*)::int AS total FROM movimientos_stock');
+    const total = totalResult.rows[0].total;
+
     const { rows } = await pool.query(
-      'SELECT * FROM movimientos_stock ORDER BY created_at DESC LIMIT 50'
+      `SELECT * FROM movimientos_stock ORDER BY ${orderBy} LIMIT $1 OFFSET $2`,
+      [limit, offset]
     );
-    res.json({ data: rows, count: rows.length });
+
+    setPaginationHeaders(res, req, page, limit, total);
+
+    res.json({ data: rows, count: rows.length, total, page, limit });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// POST /stock - create a stock movement
-// Fields: producto_id (required), cantidad (required), tipo (required: 'entrada' | 'salida')
-router.post('/', async (req, res) => {
-  const { producto_id, cantidad, tipo } = req.body;
-  if (!producto_id || cantidad == null || !tipo) {
-    return res.status(400).json({ error: 'producto_id, cantidad, and tipo are required' });
-  }
-  if (!['entrada', 'salida'].includes(tipo)) {
-    return res.status(400).json({ error: "tipo must be 'entrada' or 'salida'" });
-  }
+// POST /stock — zod
+router.post('/', validate(stockSchema), async (req, res, next) => {
   try {
+    const { producto_id, cantidad, tipo } = req.body;
+
     const { rows } = await pool.query(
       'INSERT INTO movimientos_stock (producto_id, cantidad, tipo) VALUES ($1, $2, $3) RETURNING *',
       [producto_id, cantidad, tipo]
     );
     res.status(201).json({ data: rows[0] });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 

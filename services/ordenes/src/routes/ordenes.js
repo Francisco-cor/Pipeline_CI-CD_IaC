@@ -1,33 +1,49 @@
+'use strict';
+
+const {
+  validate,
+  ordenSchema,
+  parsePagination,
+  setPaginationHeaders,
+  sortToOrderBy,
+  AppError,
+} = require('@erp/shared');
 const express = require('express');
 
 const pool = require('../db');
+
 const router = express.Router();
 
-// GET /ordenes - list all
-// Returns up to 50 most recent orders, newest first.
-router.get('/', async (req, res) => {
+// GET /ordenes — paginated
+router.get('/', async (req, res, next) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM ordenes ORDER BY created_at DESC LIMIT 50');
-    res.json({ data: rows, count: rows.length });
+    const { page, limit, offset, sort } = parsePagination(req);
+    const orderBy = sortToOrderBy(sort);
+
+    const totalResult = await pool.query('SELECT COUNT(*)::int AS total FROM ordenes');
+    const total = totalResult.rows[0].total;
+
+    const { rows } = await pool.query(
+      `SELECT * FROM ordenes ORDER BY ${orderBy} LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+
+    setPaginationHeaders(res, req, page, limit, total);
+
+    res.json({ data: rows, count: rows.length, total, page, limit });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 
-// POST /ordenes - create
-// Fields: producto_id (required), cantidad (required), total (required)
-// estado defaults to 'pendiente' at the DB level.
-router.post('/', async (req, res) => {
-  const { producto_id, cantidad, total } = req.body;
-  if (!producto_id || cantidad == null || total == null) {
-    return res.status(400).json({ error: 'producto_id, cantidad, and total are required' });
-  }
+// POST /ordenes — zod + FK check
+router.post('/', validate(ordenSchema), async (req, res, next) => {
   try {
-    // Validate the FK before inserting so callers get a 404 with a clear
-    // message instead of a raw DB constraint error string from a 500.
+    const { producto_id, cantidad, total } = req.body;
+
     const { rowCount } = await pool.query('SELECT 1 FROM productos WHERE id = $1', [producto_id]);
     if (rowCount === 0) {
-      return res.status(404).json({ error: `producto ${producto_id} not found` });
+      throw new AppError(404, 'NOT_FOUND', `producto ${producto_id} not found`);
     }
 
     const { rows } = await pool.query(
@@ -36,7 +52,7 @@ router.post('/', async (req, res) => {
     );
     res.status(201).json({ data: rows[0] });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    next(err);
   }
 });
 

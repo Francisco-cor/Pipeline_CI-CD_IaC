@@ -1,0 +1,453 @@
+openapi: 3.1.0
+info:
+  title: ERP Pipeline API
+  description: |
+    Microservices ERP (productos, ordenes, stock) behind NGINX sidecar (ECS) and compose.
+    Base URL via NGINX: http://localhost:80
+    Legacy compat: /api/productos, versioned: /api/v1/productos (both proxied to same service router).
+    See docs/api.md and nginx/nginx.conf.
+  version: 1.0.0
+  contact:
+    name: ERP Pipeline
+    url: https://github.com/Francisco-cor/Pipeline_CI-CD_IaC
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:80
+    description: Local compose via NGINX
+  - url: http://localhost:3001
+    description: Direct svc-productos (bypass NGINX)
+  - url: http://localhost:3002
+    description: Direct svc-ordenes
+  - url: http://localhost:3003
+    description: Direct svc-stock
+
+tags:
+  - name: productos
+  - name: ordenes
+  - name: stock
+  - name: health
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: NGINX health
+      responses:
+        '200':
+          description: nginx ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  service: { type: string, example: nginx }
+
+  /api/productos/health:
+    get:
+      tags: [health]
+      summary: productos health (DB)
+      responses:
+        '200': { $ref: '#/components/responses/HealthOk' }
+        '500': { $ref: '#/components/responses/HealthFail' }
+  /api/v1/productos/health:
+    get:
+      tags: [health]
+      summary: productos health versioned alias
+      responses:
+        '200': { $ref: '#/components/responses/HealthOk' }
+        '500': { $ref: '#/components/responses/HealthFail' }
+
+  /api/ordenes/health:
+    get:
+      tags: [health]
+      summary: ordenes health
+      responses:
+        '200': { $ref: '#/components/responses/HealthOk' }
+        '500': { $ref: '#/components/responses/HealthFail' }
+  /api/v1/ordenes/health:
+    get:
+      tags: [health]
+      summary: ordenes health versioned
+      responses:
+        '200': { $ref: '#/components/responses/HealthOk' }
+
+  /api/stock/health:
+    get:
+      tags: [health]
+      summary: stock health
+      responses:
+        '200': { $ref: '#/components/responses/HealthOk' }
+        '500': { $ref: '#/components/responses/HealthFail' }
+  /api/v1/stock/health:
+    get:
+      tags: [health]
+      summary: stock health versioned
+      responses:
+        '200': { $ref: '#/components/responses/HealthOk' }
+
+  /api/productos:
+    get:
+      tags: [productos]
+      summary: List productos (paginated)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: ok
+          headers:
+            X-Total-Count: { schema: { type: integer }, description: total rows }
+            Link: { schema: { type: string }, description: RFC5988 pagination }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProductos'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [productos]
+      summary: Create producto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductoInput' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Producto' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/productos:
+    get:
+      tags: [productos]
+      summary: List productos versioned (same as /api/productos)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: ok
+          headers:
+            X-Total-Count: { schema: { type: integer } }
+            Link: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedProductos' }
+    post:
+      tags: [productos]
+      summary: Create producto versioned
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductoInput' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Producto' }
+
+  /api/ordenes:
+    get:
+      tags: [ordenes]
+      summary: List ordenes paginated
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: ok
+          headers:
+            X-Total-Count: { schema: { type: integer } }
+            Link: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedOrdenes' }
+    post:
+      tags: [ordenes]
+      summary: Create orden
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrdenInput' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Orden' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/ordenes:
+    get:
+      tags: [ordenes]
+      summary: List ordenes versioned
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedOrdenes' }
+    post:
+      tags: [ordenes]
+      summary: Create orden versioned
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrdenInput' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Orden' }
+
+  /api/stock:
+    get:
+      tags: [stock]
+      summary: List movimientos_stock paginated
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedStock' }
+    post:
+      tags: [stock]
+      summary: Create movimiento
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StockInput' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Stock' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/v1/stock:
+    get:
+      tags: [stock]
+      summary: List stock versioned
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedStock' }
+    post:
+      tags: [stock]
+      summary: Create stock versioned
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StockInput' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Stock' }
+
+  /health/live:
+    get:
+      tags: [health]
+      summary: Liveness (no DB)
+      responses:
+        '200':
+          description: live
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  service: { type: string }
+                  uptime_s: { type: integer }
+  /health/ready:
+    get:
+      tags: [health]
+      summary: Readiness (DB check)
+      responses:
+        '200': { $ref: '#/components/responses/HealthOk' }
+        '500': { $ref: '#/components/responses/HealthFail' }
+
+components:
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+      description: page number (1-indexed)
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      description: items per page (cap 100)
+    Sort:
+      name: sort
+      in: query
+      schema: { type: string, enum: [created_at_asc, created_at_desc], default: created_at_desc }
+      description: sort order
+
+  schemas:
+    Producto:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        nombre: { type: string, example: Motor Trifásico 5HP mod. M3000 }
+        precio: { type: string, example: "850.50" }
+        stock: { type: integer, example: 12 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ProductoInput:
+      type: object
+      required: [nombre, precio]
+      properties:
+        nombre: { type: string, minLength: 1, maxLength: 255 }
+        precio: { type: number, minimum: 0 }
+        stock: { type: integer, minimum: 0, default: 0 }
+    PaginatedProductos:
+      type: object
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Producto' } }
+        count: { type: integer }
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+
+    Orden:
+      type: object
+      properties:
+        id: { type: integer }
+        producto_id: { type: integer }
+        cantidad: { type: integer, minimum: 1 }
+        total: { type: string, example: "100.00" }
+        estado: { type: string, enum: [pendiente, procesada, cancelada] }
+        created_at: { type: string, format: date-time }
+    OrdenInput:
+      type: object
+      required: [producto_id, cantidad, total]
+      properties:
+        producto_id: { type: integer, minimum: 1 }
+        cantidad: { type: integer, minimum: 1 }
+        total: { type: number, minimum: 0 }
+    PaginatedOrdenes:
+      type: object
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Orden' } }
+        count: { type: integer }
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+
+    Stock:
+      type: object
+      properties:
+        id: { type: integer }
+        producto_id: { type: integer }
+        cantidad: { type: integer, minimum: 1 }
+        tipo: { type: string, enum: [entrada, salida] }
+        created_at: { type: string, format: date-time }
+    StockInput:
+      type: object
+      required: [producto_id, cantidad, tipo]
+      properties:
+        producto_id: { type: integer, minimum: 1 }
+        cantidad: { type: integer, minimum: 1 }
+        tipo: { type: string, enum: [entrada, salida] }
+    PaginatedStock:
+      type: object
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Stock' } }
+        count: { type: integer }
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: VALIDATION_ERROR }
+            message: { type: string }
+            details: { type: array, items: { type: object } }
+            requestId: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: internal error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    HealthOk:
+      description: healthy
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: { type: string, example: ok }
+              service: { type: string }
+              db: { type: string, example: connected }
+              latency_ms: { type: integer }
+              uptime_s: { type: integer }
+    HealthFail:
+      description: unhealthy
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: { type: string, example: error }
+              service: { type: string }
+              db: { type: string, example: disconnected }

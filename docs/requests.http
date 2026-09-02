@@ -1,0 +1,84 @@
+# docs/requests.http — VS Code REST Client
+# Fase 3.9 — Ejemplos para probar local (requiere docker compose up)
+
+### Health NGINX
+GET http://localhost:80/health
+
+### Health productos (DB)
+GET http://localhost:80/api/v1/productos/health
+
+### Health liveness
+GET http://localhost:80/api/v1/productos/health/live
+
+### List productos paginado
+GET http://localhost:80/api/v1/productos?page=1&limit=5&sort=created_at_desc
+
+### Create producto (falsy fix: precio 0, stock 0)
+POST http://localhost:80/api/v1/productos
+Content-Type: application/json
+
+{
+  "nombre": "Tornillo M8",
+  "precio": 0,
+  "stock": 0
+}
+
+### Create producto valid
+POST http://localhost:80/api/v1/productos
+Content-Type: application/json
+
+{
+  "nombre": "CI Test Widget",
+  "precio": 4.99,
+  "stock": 10
+}
+
+### Validation error (nombre vacío, precio negativo)
+POST http://localhost:80/api/v1/productos
+Content-Type: application/json
+
+{
+  "nombre": "",
+  "precio": -5
+}
+
+### List ordenes
+GET http://localhost:80/api/v1/ordenes?page=1&limit=10
+
+### Create orden (FK check)
+POST http://localhost:80/api/v1/ordenes
+Content-Type: application/json
+
+{
+  "producto_id": 1,
+  "cantidad": 2,
+  "total": 50.00
+}
+
+### Create orden FK 404
+POST http://localhost:80/api/v1/ordenes
+Content-Type: application/json
+
+{
+  "producto_id": 9999,
+  "cantidad": 1,
+  "total": 10
+}
+
+### List stock
+GET http://localhost:80/api/v1/stock?limit=3
+
+### Create stock movimiento
+POST http://localhost:80/api/v1/stock
+Content-Type: application/json
+
+{
+  "producto_id": 1,
+  "cantidad": 5,
+  "tipo": "entrada"
+}
+
+### Compat legacy (sin /v1)
+GET http://localhost:80/api/productos
+GET http://localhost:80/api/ordenes
+GET http://localhost:80/api/stock
