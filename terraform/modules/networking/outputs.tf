@@ -22,3 +22,13 @@ output "sg_db_id" {
   value       = aws_security_group.sg_db.id
 }
 
+output "private_subnet_ids" {
+  description = "Fase 7.3 — IDs de private subnets (empty list cuando enable_nat_gateway=false). Futuro: ECS en private + NAT para Fase 10."
+  value       = var.enable_nat_gateway ? [for s in aws_subnet.private : s.id] : []
+}
+
+output "nat_gateway_id" {
+  description = "ID del NAT Gateway si enable_nat_gateway=true, null si false."
+  value       = var.enable_nat_gateway ? aws_nat_gateway.main[0].id : null
+}
+

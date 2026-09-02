@@ -112,10 +112,10 @@ resource "aws_db_instance" "postgres" {
   maintenance_window         = "Mon:04:00-Mon:05:00"
   auto_minor_version_upgrade = true
 
-  # Prod guards — Fase 5.8
-  skip_final_snapshot       = var.environment == "prod" ? false : true
-  deletion_protection       = var.environment == "prod" ? true : false
-  final_snapshot_identifier = var.environment == "prod" ? "${var.project_name}-${var.environment}-final" : null
+  # Prod guards — Fase 5.8 + 7.2 (var override coalesce en root)
+  skip_final_snapshot       = var.enable_deletion_protection ? false : true
+  deletion_protection       = var.enable_deletion_protection
+  final_snapshot_identifier = var.enable_deletion_protection ? "${var.project_name}-${var.environment}-final" : null
 
   # Performance Insights — free tier 7d, prod 731d (requires KMS if >7)
   performance_insights_enabled          = true

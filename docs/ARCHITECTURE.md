@@ -6,8 +6,8 @@
 
 - **Runtime:** Node 20 + Express 4 + `pg` 8, PostgreSQL 15 en RDS `db.t3.micro`.
 - **Infra:** AWS ECS Fargate (task 0.5 vCPU/1GB), ECR, RDS, SSM Parameter Store, CloudWatch, SNS.
-- **IaC:** Terraform 1.9+ modular (`terraform/modules/*`), backend S3+DynamoDB (`terraform/backend.tf:1-38`), `terraform/.tflint.hcl:1` + `checkov` (Fase 6.4).
-- **CI/CD:** GitHub Actions OIDC (`terraform/cicd.tf:17-65`, `ADR-002`), `concurrency` + `paths-filter` + `lint --cache` + `gitleaks/trivy` + `tflint/checkov` + `buildx gha cache` + `coverage` (`pipeline.yml:18-711`) — Fase 6 (<6m PR).
+- **IaC:** Terraform 1.9+ modular (`terraform/modules/*`), backend S3+DynamoDB per env (`terraform/backend.tf:1-20` `encrypt=true` + `environments/backend-*.hcl:1` + `environments/*.tfvars:1`), `terraform/.tflint.hcl:1` + `checkov`, toggles `enable_nat_gateway/service_discovery` (Fase 7).
+- **CI/CD:** GitHub Actions OIDC (`terraform/cicd.tf:17-65`, `ADR-002`), `concurrency` + `paths-filter` + `lint --cache` + `gitleaks/trivy` + `tflint/checkov` + `buildx gha cache` + `coverage` (`pipeline.yml:18-711`) — Fase 6 (<6m PR), `teardown.yml:15-60` prod guard (Fase 7.8).
 - **Proxy:** NGINX sidecar (`nginx/nginx.conf:1-96`) en misma task ECS (awsvpc, `localhost`).
 
 ## Layout
@@ -23,13 +23,19 @@
 ├── migrations/{run.js, sql/001_*.sql ..}
 ├── nginx/{nginx.conf, Dockerfile}
 ├── terraform/
-│   ├── main.tf               # compone networking → database → secrets → compute
+│   ├── main.tf               # compone networking → database → secrets → compute (locals is_prod, effective_deletion_protection)
+│   ├── variables.tf          # toggles Fase 7: enable_nat_gateway/deletion_protection/service_discovery/ecr_retention
 │   ├── modules/{networking,database,secrets,compute}
+│   │   └── compute/templates/taskdef.json.tftpl  # Fase 7.4 templatefile (extrae container_definitions)
+│   ├── environments/         # Fase 7.1: dev/staging/prod.tfvars + backend-*.hcl per env
+│   │   ├── dev.tfvars + backend-dev.hcl
+│   │   ├── staging.tfvars + backend-staging.hcl
+│   │   └── prod.tfvars + backend-prod.hcl
 │   ├── cicd.tf               # OIDC provider + role (github_actions)
 │   ├── observability.tf      # metric filter + alarm
-│   └── backend.tf            # S3 remote state
-├── scripts/{build.sh,deploy.sh,bootstrap-backend.{sh,ps1}}
-└── docs/{adr/,ARCHITECTURE.md}
+│   └── backend.tf            # S3 partial config encrypt=true (Fase 7.1 — supply via -backend-config)
+├── scripts/{build.sh,deploy.sh (Fase 7.7 hardened: lock+digest+wait),bootstrap-backend.{sh,ps1}}
+└── docs/{adr/,ARCHITECTURE.md,runbooks/{deploy,rollback,drift}.md}
 ```
 
 ## Flujo de request
@@ -45,14 +51,14 @@ RDS (sg_db:5432 solo desde sg_app) ← servicios; SSM → DATABASE_URL inyectado
 
 Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NAT).
 
-## Módulos Terraform
+## Módulos Terraform (Fase 7)
 
-| Módulo | Crea | Clave |
-|---|---|---|
-| `networking` (`modules/networking/main.tf:27-181`) | VPC `10.0.0.0/16`, 2 public subnets, IGW, SGs `sg_app`/`sg_db` | `map_public_ip_on_launch=true`, SG como perímetro |
-| `database` (`modules/database/main.tf:54-98`) | `aws_db_parameter_group postgres15` (`log_min_duration_statement 1000`), `aws_db_instance postgres:15 gp3` | `multi_az prod?true:false`, `backup_retention prod 7:1`, `storage_encrypted`, `deletion_protection prod`, `performance_insights 731 prod` (Fase 5.8) |
-| `secrets` (`modules/secrets/main.tf:23-122`) | `aws_ssm_parameter /erp/.../db-url` (SecureString), IAM roles `ecs_task_execution`/`ecs_task` | `secretsmanager:GetSecretValue` scoped a ARN |
-| `compute` (`modules/compute/main.tf:31-428`) | ECR ×5, ECS cluster+service, task def 5 contenedores | `cpu 512/mem 1024`, `circuit_breaker rollback=true`, ECR lifecycle `keep 1` (a subir a 5 en Fase 7) |
+| Módulo                                             | Crea                                                                                                                                                                                                                                                     | Clave                                                                                                                                                                                                                                                      |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `networking` (`modules/networking/main.tf:27-240`) | VPC `10.0.0.0/16`, 2 public subnets `10.0.1/24-2/24` + opcional 2 private `10.0.10/24-11/24` + IGW + NAT GW/EIP + route tables public/private (toggle `enable_nat_gateway` `count` pattern) + SGs `sg_app`/`sg_db`                                       | `map_public_ip_on_launch=true` public, `false` private; `private_subnet_ids` + `nat_gateway_id` outputs (Fase 7.3)                                                                                                                                         |
+| `database` (`modules/database/main.tf:54-128`)     | `aws_db_parameter_group postgres15` (`log_min_duration_statement 1000`), `aws_db_instance postgres:15 gp3`                                                                                                                                               | `multi_az prod?true:false`, `backup_retention prod 7:1`, `storage_encrypted`, `deletion_protection = var.enable_deletion_protection` (`local.effective_deletion_protection` en `main.tf:10` coalesce prod guard Fase 7.2), `performance_insights 731 prod` |
+| `secrets` (`modules/secrets/main.tf:23-122`)       | `aws_ssm_parameter /erp/.../db-url` (SecureString), IAM roles `ecs_task_execution`/`ecs_task`                                                                                                                                                            | `ssm:GetParameters` scoped a ARN (Fase 8 fix `GetParameter` + `kms:Decrypt` pendiente)                                                                                                                                                                     |
+| `compute` (`modules/compute/main.tf:31-450`)       | ECR ×5 `lifecycle keep var.ecr_image_retention_count=5` (`main.tf:46`), ECS cluster+service, task def via `templatefile(templates/taskdef.json.tftpl)` (Fase 7.4), Cloud Map `erp.local` namespace + 3 `aws_service_discovery_service` (Fase 7.6 toggle) | `cpu 512/mem 1024`, `circuit_breaker rollback=true`, `vpc_id` + `enable_service_discovery` vars                                                                                                                                                            |
 
 ## Servicios Node (Fase 2-5 completadas)
 
@@ -61,19 +67,20 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 - Validación `zod` (`packages/shared/src/validate.js:8`) + `helmet/cors/compression/request-id` (`middleware.js:11`) + `AppError` central (`errors.js:23`) — Fase 3.5-3.6. Fix falsy `stock ?? 0` + `Number(precio)` (Fase 3.4).
 - **Data:** `schema_migrations` + `pg_advisory_lock 727727727` + `BEGIN/COMMIT` por archivo (`migrations/run.js:14-48`), triggers `updated_at` (002/004) + `stock invariant` (`005_stock_invariant.sql:6`) + `pg_trgm GIN` (`006_trigram_search.sql:5`) — Fase 5.
 
-## CI/CD (Fase 6)
+## CI/CD (Fase 6 + 7)
 
-- **Concurrency:** `pipeline.yml:38-40` `group: workflow-ref` + `cancel-in-progress: true` (Fase 6.1).
+- **Concurrency:** `pipeline.yml:38-40` `group: workflow-ref` + `cancel-in-progress: true` (Fase 6.1) + `teardown.yml:15` `concurrency: teardown-ref` (Fase 7.8).
 - **Changes:** `pipeline.yml:58-107` `dorny/paths-filter@v3` → `productos/ordenes/stock/nginx/migrations/any_service` (Fase 6.7).
 - **Lint:** `pipeline.yml:114-148` matrix + `eslint --cache` + `actions/cache .eslintcache` + summary (Fase 6.5).
 - **Format:** `pipeline.yml:153-176` `prettier --check` (Fase 6.5).
 - **Sec:** `pipeline.yml:182-235` `gitleaks/gitleaks-action@v2` + `aquasecurity/trivy-action fs` SARIF → code scanning (Fase 6.3).
 - **Test:** `pipeline.yml:242-304` matrix `postgres:15`, `jest --coverage`, `upload-artifact coverage-*`, summary + `needs: [lint,format]` (Fase 6.6).
 - **e2e:** `pipeline.yml:310-339` `docker compose up --build --wait` + `scripts/e2e.sh` (Fase 4.8).
-- **Terraform PR:** `pipeline.yml:346-460` `fmt -check` → `init -backend=false` → `validate` → `tflint --init/--recursive` (`terraform/.tflint.hcl:1` `plugin aws 0.38.0`) → `checkov` SARIF → `init` OIDC → `plan` → `sticky-pull-request-comment` + summary (Fase 6.4 + 6.8).
+- **Terraform PR:** `pipeline.yml:346-460` `fmt -check` → `init -backend=false` → `validate` → `tflint --init/--recursive` (`terraform/.tflint.hcl:1` `plugin aws 0.38.0`) → `checkov` SARIF → `init -reconfigure -backend-config=environments/backend-dev.hcl` → `plan -var-file=environments/dev.tfvars` OIDC → `sticky-pull-request-comment` + summary (Fase 6.4+7.1).
 - **Build:** `pipeline.yml:467-613` `if: push main && any_service` → `docker/setup-buildx-action@v3` + `docker/build-push-action@v6` per-service `if: productos==true` con `cache-from/to: type=gha,mode=max` → ECR `:sha-<short>` + `:latest` (Fase 6.2 + 6.7).
 - **Trivy image:** `pipeline.yml:619-672` matrix post-build `trivy image CRITICAL,HIGH` SARIF (soft-fail) (Fase 6.3).
-- **Deploy:** `pipeline.yml:679-711` `scripts/deploy.sh` (python JSON swap + `aws ecs wait services-stable`) solo si `build` OK.
+- **Deploy:** `pipeline.yml:679-711` `scripts/deploy.sh:1` hardened lock+digest+rollback detect (`flock`, `ecr describe-images`, `register`, `wait services-stable`, rollback check) solo si `build` OK (Fase 7.7).
+- **Teardown:** `teardown.yml:1-60` `schedule 23 UTC` + `workflow_dispatch` `confirm=destroy` + `environment=destroy` + prod guard `if: environment != prod` + `init -backend-config=environments/backend-*.hcl` + `destroy -var-file=environments/*.tfvars` (Fase 7.8).
 
 ## Observabilidad
 
@@ -94,5 +101,10 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 
 ## Roadmap
 
-Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → production-grade. **Fases 1-6 completadas:** higiene (1) → compose+monorepo (2) → hardening API (3) → testing (4) → datos enterprise (5) → CI (6). Siguiente: Fase 7 infra multi-env + Fase 8 sec profunda.
+Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → production-grade. **Fases 1-7 completadas:** higiene (1) → compose+monorepo (2) → hardening API (3) → testing (4) → datos enterprise (5) → CI (6) → infra multi-env + prod guards + service discovery (7). Siguiente: Fase 8 sec profunda (SSM kms:Decrypt, WAF toggle) + Fase 9 obs (dashboard, p95).
 
+## Runbooks (Fase 7.9)
+
+- `docs/runbooks/deploy.md:1` — deploy normal + `deploy.sh` verificación digest + lock
+- `docs/runbooks/rollback.md:1` — rollback automático circuit breaker vs manual `IMAGE_TAG=sha-prev`
+- `docs/runbooks/drift.md:1` — drift `plan -var-file=environments/*.tfvars` + `ignore_changes` de `task_definition`

@@ -13,18 +13,41 @@ name: Auto-Cleanup
 on:
   schedule:
     - cron: '0 23 * * *' # 11 PM UTC
-  workflow_dispatch:      # Allows manual trigger for testing or on-demand cleanup
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm teardown (prod guard active)'
+        required: true
+        default: 'no'
+      environment:
+        description: 'Environment to destroy (dev/staging) — prod blocked'
+        required: true
+        default: 'dev'
 
 env:
   AWS_REGION:    us-east-2
   PROJECT_NAME:  erp-pipeline
   ENVIRONMENT:   dev
 
+# Fase 7.8 — concurrency evita dos destroys simultáneos
+concurrency:
+  group: teardown-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   destroy:
     name: Terraform Destroy
     runs-on: ubuntu-latest
-    
+    # Fase 7.8 — prod guard: nunca destruir prod automáticamente
+    # schedule solo corre si ENVIRONMENT != prod; manual requiere confirm=="destroy"
+    if: |
+      github.event_name == 'schedule' && vars.ENVIRONMENT != 'prod' ||
+      github.event_name == 'workflow_dispatch' && github.event.inputs.confirm == 'destroy' && github.event.inputs.environment != 'prod'
+
+    # GitHub Environment protection — configura en Settings → Environments → "destroy"
+    # con required reviewers para aprobación manual antes de destruir staging
+    environment: destroy
+
     permissions:
       id-token: write   # Required for OIDC token request
       contents: read
@@ -36,21 +59,52 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      # Fase 7.8 — prod guard (fail fast)
+      - name: Prod guard — refuse prod destroy
+        run: |
+          ENV_TO_DESTROY="${{ github.event.inputs.environment || env.ENVIRONMENT }}"
+          echo "Target env: ${ENV_TO_DESTROY}"
+          if [ "${ENV_TO_DESTROY}" = "prod" ]; then
+            echo "ERROR: refusing to destroy prod — deletion_protection=true y este workflow está bloqueado para prod." >&2
+            echo "Para prod, hacer terraform destroy manual local con aprobación y -target." >&2
+            exit 1
+          fi
+          # Also guard via TF_VAR_environment if caller passes prod
+          if [ "${{ env.ENVIRONMENT }}" = "prod" ]; then
+            echo "ERROR: ENVIRONMENT=prod blocked in this workflow — use manual local destroy." >&2
+            exit 1
+          fi
+
+      - name: Validate confirm input (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "destroy" ]; then
+            echo "ERROR: confirm must be 'destroy' — got '${{ github.event.inputs.confirm }}'" >&2
+            exit 1
+          fi
+          echo "Manual confirm OK for env ${{ github.event.inputs.environment }}"
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Terraform Init
-        run: terraform init -input=false
+      - name: Terraform Init (backend per env — Fase 7.1)
+        run: |
+          ENV_TO_USE="${{ github.event.inputs.environment || env.ENVIRONMENT }}"
+          echo "Init backend for ${ENV_TO_USE}"
+          terraform init -input=false -reconfigure -backend-config="environments/backend-${ENV_TO_USE}.hcl"
         working-directory: terraform
 
-      - name: Terraform Destroy
-        run: terraform destroy -auto-approve -input=false
+      - name: Terraform Destroy (Fase 7.8 — var-file per env + prod guard)
+        run: |
+          ENV_TO_USE="${{ github.event.inputs.environment || env.ENVIRONMENT }}"
+          echo "Destroy ${ENV_TO_USE} — var-file=environments/${ENV_TO_USE}.tfvars"
+          terraform destroy -auto-approve -input=false -var-file="environments/${ENV_TO_USE}.tfvars"
         working-directory: terraform
         env:
           TF_VAR_github_repo:  ${{ github.repository }}
-          TF_VAR_environment:  ${{ env.ENVIRONMENT }}
+          TF_VAR_environment:  ${{ github.event.inputs.environment || env.ENVIRONMENT }}
           TF_VAR_project_name: ${{ env.PROJECT_NAME }}
           TF_VAR_aws_region:   ${{ env.AWS_REGION }}

@@ -405,15 +405,15 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Terraform init (with backend)
-        run: terraform init -input=false
+      - name: Terraform init (with backend — Fase 7.1)
+        run: terraform init -input=false -reconfigure -backend-config="environments/backend-${{ env.ENVIRONMENT }}.hcl"
         working-directory: terraform
 
-      - name: Terraform plan
+      - name: Terraform plan (Fase 7.1 var-file per env)
         id: plan
         run: |
           set +e
-          terraform plan -no-color -input=false -out=tfplan > plan.txt 2>&1
+          terraform plan -no-color -input=false -var-file="environments/${{ env.ENVIRONMENT }}.tfvars" -out=tfplan > plan.txt 2>&1
           CODE=$?
           cat plan.txt
           echo "exit_code=$CODE" >> $GITHUB_OUTPUT

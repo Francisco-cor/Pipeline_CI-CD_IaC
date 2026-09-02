@@ -18,6 +18,9 @@ crash.*.log
 # specific to a single user or environment.
 *.tfvars
 *.tfvars.json
+# Fase 7.1 — permitir tfvars de ejemplo por env (no contienen secretos)
+!terraform/environments/*.tfvars
+!terraform/terraform.tfvars.example
 
 # Ignore override files as they are usually used for local non-committed changes
 override.tf

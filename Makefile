@@ -21,9 +21,11 @@ help:
 	@echo "  make tf-validate    - terraform init -backend=false && validate (Fase 6.4)"
 	@echo "  make tf-lint        - tflint --init && --recursive (Fase 6.4)"
 	@echo "  make tf-checkov     - checkov -d terraform --quiet (Fase 6.4)"
+	@echo "  make tf-plan-dev    - terraform plan -var-file=environments/dev.tfvars (Fase 7.1)"
+	@echo "  make tf-plan-prod   - terraform plan -var-file=environments/prod.tfvars (Fase 7.1)"
 	@echo "  make sec-scan       - gitleaks detect + trivy fs (Fase 6.3)"
 	@echo "  make nuke           - down -v --remove-orphans (borra pgdata)"
-	@echo "  make verify         - lint + format-check + compose config + tf fmt/validate (Fase 6)"
+	@echo "  make verify         - lint + format-check + compose config + tf fmt/validate (Fase 7)"
 
 # ---------------------------------------------------------------------------
 # Compose
@@ -71,7 +73,7 @@ test:
 	npm run test --workspaces --if-present
 
 # ---------------------------------------------------------------------------
-# Infra (Fase 6.4)
+# Infra (Fase 6.4 + 7.1)
 # ---------------------------------------------------------------------------
 tf-fmt:
 	terraform -chdir=terraform fmt -recursive
@@ -85,6 +87,12 @@ tf-lint:
 tf-checkov:
 	checkov -d terraform --quiet --framework terraform --soft-fail
 
+tf-plan-dev:
+	terraform -chdir=terraform init -backend=false -input=false >/dev/null && terraform -chdir=terraform validate >/dev/null && terraform -chdir=terraform plan -var-file=environments/dev.tfvars -no-color | head -n 50
+
+tf-plan-prod:
+	terraform -chdir=terraform init -backend=false -input=false >/dev/null && terraform -chdir=terraform validate >/dev/null && terraform -chdir=terraform plan -var-file=environments/prod.tfvars -no-color | head -n 50
+
 # ---------------------------------------------------------------------------
 # Sec (Fase 6.3)
 # ---------------------------------------------------------------------------
@@ -93,10 +101,10 @@ sec-scan:
 	trivy fs --severity HIGH,CRITICAL --ignore-unfixed .
 
 # ---------------------------------------------------------------------------
-# Verify (lo que debe estar verde antes de push) — Fase 6
+# Verify (lo que debe estar verde antes de push) — Fase 7
 # ---------------------------------------------------------------------------
 verify: lint format-check
 	docker compose config -q && echo "compose config: ok"
 	terraform -chdir=terraform fmt -check -recursive && echo "terraform fmt: ok" || (echo "terraform fmt: run 'make tf-fmt'" && exit 1)
 	terraform -chdir=terraform init -backend=false -input=false >/dev/null && terraform -chdir=terraform validate -no-color && echo "terraform validate: ok"
-	@echo "verify: ok — lint + format + compose + tf fmt/validate (add tf-lint/tf-checkov if installed)"
+	@echo "verify: ok — lint + format + compose + tf fmt/validate (Fase 7) — for full env check: make tf-plan-dev tf-plan-prod"

@@ -1,0 +1,140 @@
+[
+  {
+    "name": "migrations",
+    "image": "${ecr_base}/${project_name}-migrations:latest",
+    "essential": false,
+    "secrets": [
+      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
+    ],
+    "environment": [
+      { "name": "NODE_ENV", "value": "${environment}" }
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "${log_group}",
+        "awslogs-region": "${region}",
+        "awslogs-stream-prefix": "ecs"
+      }
+    }
+  },
+  {
+    "name": "nginx",
+    "image": "${ecr_base}/${project_name}-nginx:latest",
+    "essential": true,
+    "dependsOn": [
+      { "containerName": "migrations", "condition": "SUCCESS" }
+    ],
+    "portMappings": [
+      { "containerPort": 80, "hostPort": 80, "protocol": "tcp" }
+    ],
+    "healthCheck": {
+      "command": ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"],
+      "interval": 30,
+      "timeout": 5,
+      "retries": 3,
+      "startPeriod": 120
+    },
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "${log_group}",
+        "awslogs-region": "${region}",
+        "awslogs-stream-prefix": "nginx"
+      }
+    }
+  },
+  {
+    "name": "svc-productos",
+    "image": "${ecr_base}/${project_name}-productos:latest",
+    "essential": true,
+    "dependsOn": [
+      { "containerName": "migrations", "condition": "SUCCESS" }
+    ],
+    "environment": [
+      { "name": "NODE_ENV", "value": "${environment}" },
+      { "name": "PORT", "value": "3001" },
+      { "name": "SERVICE_NAME", "value": "svc-productos" }
+    ],
+    "secrets": [
+      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
+    ],
+    "healthCheck": {
+      "command": ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"],
+      "interval": 30,
+      "timeout": 5,
+      "retries": 3,
+      "startPeriod": 120
+    },
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "${log_group}",
+        "awslogs-region": "${region}",
+        "awslogs-stream-prefix": "productos"
+      }
+    }
+  },
+  {
+    "name": "svc-ordenes",
+    "image": "${ecr_base}/${project_name}-ordenes:latest",
+    "essential": true,
+    "dependsOn": [
+      { "containerName": "migrations", "condition": "SUCCESS" }
+    ],
+    "environment": [
+      { "name": "NODE_ENV", "value": "${environment}" },
+      { "name": "PORT", "value": "3002" },
+      { "name": "SERVICE_NAME", "value": "svc-ordenes" }
+    ],
+    "secrets": [
+      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
+    ],
+    "healthCheck": {
+      "command": ["CMD-SHELL", "wget -qO- http://localhost:3002/health || exit 1"],
+      "interval": 30,
+      "timeout": 5,
+      "retries": 3,
+      "startPeriod": 120
+    },
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "${log_group}",
+        "awslogs-region": "${region}",
+        "awslogs-stream-prefix": "ordenes"
+      }
+    }
+  },
+  {
+    "name": "svc-stock",
+    "image": "${ecr_base}/${project_name}-stock:latest",
+    "essential": true,
+    "dependsOn": [
+      { "containerName": "migrations", "condition": "SUCCESS" }
+    ],
+    "environment": [
+      { "name": "NODE_ENV", "value": "${environment}" },
+      { "name": "PORT", "value": "3003" },
+      { "name": "SERVICE_NAME", "value": "svc-stock" }
+    ],
+    "secrets": [
+      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
+    ],
+    "healthCheck": {
+      "command": ["CMD-SHELL", "wget -qO- http://localhost:3003/health || exit 1"],
+      "interval": 30,
+      "timeout": 5,
+      "retries": 3,
+      "startPeriod": 120
+    },
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "${log_group}",
+        "awslogs-region": "${region}",
+        "awslogs-stream-prefix": "stock"
+      }
+    }
+  }
+]

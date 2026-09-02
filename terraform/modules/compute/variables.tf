@@ -42,3 +42,21 @@ variable "sg_app_id" {
   description = "ID of the security group to attach to ECS tasks. Should allow inbound 80/443 and all outbound."
   type        = string
 }
+
+variable "vpc_id" {
+  description = "VPC ID para Cloud Map service discovery (Fase 7.6). Cuando enable_service_discovery=true crea private DNS namespace erp.local."
+  type        = string
+  default     = null
+}
+
+variable "enable_service_discovery" {
+  description = "Fase 7.6 — crea aws_service_discovery_private_dns_namespace erp.local + services productos.erp.local:3001 etc para Fase 10 HTTP decoupling."
+  type        = bool
+  default     = false
+}
+
+variable "ecr_image_retention_count" {
+  description = "Fase 7.5 — cuántas imágenes tagged mantener en ECR para rollback. Antes 1 era peligroso; 5 es default prod."
+  type        = number
+  default     = 5
+}

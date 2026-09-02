@@ -22,17 +22,13 @@
 
 terraform {
   backend "s3" {
-    # These values are intentionally left as partial config placeholders.
-    # Supply them via -backend-config flags (see comment above) or replace
-    # with literals matching the output of bootstrap-backend.sh.
-    bucket = "erp-pipeline-tfstate-dev" # replace with: ${project_name}-tfstate-${environment}
-    key    = "terraform.tfstate"
-    region = "us-east-2"
-
-    # State locking via DynamoDB prevents concurrent runs from corrupting state
-    dynamodb_table = "erp-pipeline-tfstate-lock" # replace with: ${project_name}-tfstate-lock
-
-    # Always encrypt state at rest — state files contain sensitive data
+    # Fase 7.1 — partial config: supply via -backend-config=environments/backend-*.hcl
+    # Example:
+    #   terraform init -backend-config=environments/backend-dev.hcl
+    #   terraform init -reconfigure -backend-config=environments/backend-prod.hcl
+    # bootstrap-backend.sh creates the S3 bucket + DynamoDB lock table per env.
+    # Keep encrypt=true here so state at rest is always encrypted, even if
+    # backend.hcl omits it.
     encrypt = true
   }
 }

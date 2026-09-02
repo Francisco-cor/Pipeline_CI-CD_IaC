@@ -62,12 +62,12 @@ resource "aws_ecr_lifecycle_policy" "services" {
       },
       {
         rulePriority = 2
-        description  = "Keep last 1 tagged images for rollback capability"
+        description  = "Keep last ${var.ecr_image_retention_count} tagged images for rollback (Fase 7.5)"
         selection = {
           tagStatus     = "tagged"
           tagPrefixList = ["sha-", "v", "latest"]
           countType     = "imageCountMoreThan"
-          countNumber   = 1
+          countNumber   = var.ecr_image_retention_count
         }
         action = { type = "expire" }
       }
@@ -116,6 +116,45 @@ resource "aws_cloudwatch_log_group" "ecs" {
   }
 }
 
+
+# --- Service Discovery (Cloud Map) � Fase 7.6 ---
+# Private DNS namespace erp.local para http://productos.erp.local:3001 etc.
+# Habilitado solo si var.enable_service_discovery=true (staging/prod).
+# En dev (false) no se crea nada � coste $0. Fase 10 usara esto para
+# desacoplar ordenes->productos via HTTP con circuit breaker en vez de SELECT directo.
+resource "aws_service_discovery_private_dns_namespace" "erp" {
+  count       = var.enable_service_discovery ? 1 : 0
+  name        = "erp.local"
+  description = "Fase 7.6 � Cloud Map private DNS for ${var.project_name} ${var.environment}"
+  vpc         = var.vpc_id
+  tags = {
+    Name = "${var.project_name}-${var.environment}-erp-local"
+  }
+}
+
+resource "aws_service_discovery_service" "services" {
+  for_each = var.enable_service_discovery ? toset(["productos", "ordenes", "stock"]) : toset([])
+
+  name = each.key
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.erp[0].id
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+    routing_policy = "MULTIVALUE"
+  }
+
+  health_check_custom_config {
+    failure_threshold = 1
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-${each.key}"
+  }
+}
+
 # --- Multi-container Task Definition ---
 
 locals {
@@ -152,174 +191,14 @@ resource "aws_ecs_task_definition" "app" {
   execution_role_arn = var.task_execution_role_arn
   task_role_arn      = var.task_role_arn
 
-  container_definitions = jsonencode([
-    # -------------------------------------------------------------------------
-    # Container 1: migrations (init container)
-    #
-    # essential = false: ECS does not restart this container when it exits.
-    # Exit 0 → condition "SUCCESS" → other containers start.
-    # Exit non-0 → condition "SUCCESS" not met → task fails → circuit breaker fires.
-    # This guarantees: never a service running with an outdated schema.
-    # -------------------------------------------------------------------------
-    {
-      name      = "migrations"
-      image     = "${local.ecr_base}/${var.project_name}-migrations:latest"
-      essential = false  # Exits after running — task continues if exit code is 0
-
-      secrets = [
-        { name = "DATABASE_URL", valueFrom = var.db_secret_arn }
-      ]
-
-      environment = [
-        { name = "NODE_ENV", value = var.environment }
-      ]
-
-      logConfiguration = local.log_config
-    },
-
-    # -------------------------------------------------------------------------
-    # Container 2: nginx (reverse proxy — replaces ALB, see ADR-001)
-    #
-    # Listens on port 80. Routes:
-    #   /api/productos/* → localhost:3001
-    #   /api/ordenes/*   → localhost:3002
-    #   /api/stock/*     → localhost:3003
-    #   /health          → 200 (nginx health check for ECS)
-    #
-    # dependsOn migrations with condition SUCCESS — nginx doesn't start until
-    # migrations have run, preventing requests before schema is ready.
-    # -------------------------------------------------------------------------
-    {
-      name      = "nginx"
-      image     = "${local.ecr_base}/${var.project_name}-nginx:latest"
-      essential = true
-
-      dependsOn = [
-        { containerName = "migrations", condition = "SUCCESS" }
-      ]
-
-      portMappings = [
-        { containerPort = 80, hostPort = 80, protocol = "tcp" }
-      ]
-
-      healthCheck = {
-        command     = ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
-        interval    = 30
-        timeout     = 5
-        retries     = 3
-        startPeriod = 120
-      }
-
-      logConfiguration = merge(local.log_config, {
-        options = merge(local.log_config.options, { "awslogs-stream-prefix" = "nginx" })
-      })
-    },
-
-    # -------------------------------------------------------------------------
-    # Container 3: svc-productos (Node.js, port 3001)
-    # -------------------------------------------------------------------------
-    {
-      name      = "svc-productos"
-      image     = "${local.ecr_base}/${var.project_name}-productos:latest"
-      essential = true
-
-      dependsOn = [
-        { containerName = "migrations", condition = "SUCCESS" }
-      ]
-
-      environment = [
-        { name = "NODE_ENV",     value = var.environment },
-        { name = "PORT",         value = "3001" },
-        { name = "SERVICE_NAME", value = "svc-productos" }
-      ]
-
-      secrets = [
-        { name = "DATABASE_URL", valueFrom = var.db_secret_arn }
-      ]
-
-      healthCheck = {
-        command     = ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
-        interval    = 30
-        timeout     = 5
-        retries     = 3
-        startPeriod = 120
-      }
-
-      logConfiguration = merge(local.log_config, {
-        options = merge(local.log_config.options, { "awslogs-stream-prefix" = "productos" })
-      })
-    },
-
-    # -------------------------------------------------------------------------
-    # Container 4: svc-ordenes (Node.js, port 3002)
-    # -------------------------------------------------------------------------
-    {
-      name      = "svc-ordenes"
-      image     = "${local.ecr_base}/${var.project_name}-ordenes:latest"
-      essential = true
-
-      dependsOn = [
-        { containerName = "migrations", condition = "SUCCESS" }
-      ]
-
-      environment = [
-        { name = "NODE_ENV",     value = var.environment },
-        { name = "PORT",         value = "3002" },
-        { name = "SERVICE_NAME", value = "svc-ordenes" }
-      ]
-
-      secrets = [
-        { name = "DATABASE_URL", valueFrom = var.db_secret_arn }
-      ]
-
-      healthCheck = {
-        command     = ["CMD-SHELL", "wget -qO- http://localhost:3002/health || exit 1"]
-        interval    = 30
-        timeout     = 5
-        retries     = 3
-        startPeriod = 120
-      }
-
-      logConfiguration = merge(local.log_config, {
-        options = merge(local.log_config.options, { "awslogs-stream-prefix" = "ordenes" })
-      })
-    },
-
-    # -------------------------------------------------------------------------
-    # Container 5: svc-stock (Node.js, port 3003)
-    # -------------------------------------------------------------------------
-    {
-      name      = "svc-stock"
-      image     = "${local.ecr_base}/${var.project_name}-stock:latest"
-      essential = true
-
-      dependsOn = [
-        { containerName = "migrations", condition = "SUCCESS" }
-      ]
-
-      environment = [
-        { name = "NODE_ENV",     value = var.environment },
-        { name = "PORT",         value = "3003" },
-        { name = "SERVICE_NAME", value = "svc-stock" }
-      ]
-
-      secrets = [
-        { name = "DATABASE_URL", valueFrom = var.db_secret_arn }
-      ]
-
-      healthCheck = {
-        command     = ["CMD-SHELL", "wget -qO- http://localhost:3003/health || exit 1"]
-        interval    = 30
-        timeout     = 5
-        retries     = 3
-        startPeriod = 120
-      }
-
-      logConfiguration = merge(local.log_config, {
-        options = merge(local.log_config.options, { "awslogs-stream-prefix" = "stock" })
-      })
-    }
-  ])
+  container_definitions = templatefile("${path.module}/templates/taskdef.json.tftpl", {
+    ecr_base      = local.ecr_base
+    project_name  = var.project_name
+    environment   = var.environment
+    db_secret_arn = var.db_secret_arn
+    log_group     = aws_cloudwatch_log_group.ecs.name
+    region        = data.aws_region.current.name
+  })
 
   tags = {
     Name = "${var.project_name}-${var.environment}-task-def"

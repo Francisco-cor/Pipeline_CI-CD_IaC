@@ -103,6 +103,75 @@ resource "aws_route_table_association" "public" {
 }
 
 # -----------------------------------------------------------------------------
+# Private subnets + NAT Gateway (Fase 7.3 — optional, FinOps $0 by default)
+#
+# When enable_nat_gateway=false (default dev): no private subnets, no NAT,
+# no extra cost. VPC sigue siendo 100% public con SG como perímetro (ADR-001).
+# When true: crea private subnets (10.0.10.0/24, 10.0.11.0/24) + EIP + NAT GW
+# en la primera AZ + route table privada 0.0.0.0/0 → NAT. Preparación para
+# Fase 10 (ALB + private ECS). Coste NAT ~$32/mes + 730h × $0.045/GB.
+# -----------------------------------------------------------------------------
+resource "aws_subnet" "private" {
+  for_each = var.enable_nat_gateway ? { for idx, az in var.availability_zones : az => idx } : {}
+
+  vpc_id            = aws_vpc.main.id
+  availability_zone = each.key
+  cidr_block        = cidrsubnet(var.vpc_cidr, 8, each.value + 10)
+
+  # No public IP en private
+  map_public_ip_on_launch = false
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-private-${each.key}"
+    Tier = "private"
+  }
+}
+
+resource "aws_eip" "nat" {
+  count  = var.enable_nat_gateway ? 1 : 0
+  domain = "vpc"
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-nat-eip"
+  }
+
+  depends_on = [aws_internet_gateway.main]
+}
+
+resource "aws_nat_gateway" "main" {
+  count         = var.enable_nat_gateway ? 1 : 0
+  allocation_id = aws_eip.nat[0].id
+  subnet_id     = aws_subnet.public[var.availability_zones[0]].id
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-nat"
+  }
+
+  depends_on = [aws_internet_gateway.main]
+}
+
+resource "aws_route_table" "private" {
+  count  = var.enable_nat_gateway ? 1 : 0
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.main[0].id
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-private-rt"
+  }
+}
+
+resource "aws_route_table_association" "private" {
+  for_each = var.enable_nat_gateway ? aws_subnet.private : {}
+
+  subnet_id      = each.value.id
+  route_table_id = aws_route_table.private[0].id
+}
+
+# -----------------------------------------------------------------------------
 # Security Group: sg_app
 #
 # Attached to ECS Fargate tasks.

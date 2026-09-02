@@ -179,6 +179,35 @@ make dev                    # docker compose up --build con hot-reload (override
 docker compose up --build
 ```
 
+## Infra Multi-Env (Fase 7)
+
+Terraform escala `dev/staging/prod` sin copy-paste (`terraform/environments/`):
+
+```bash
+# Backend por env (S3 + DynamoDB lock) — crear una vez
+./scripts/bootstrap-backend.sh erp-pipeline dev us-east-2
+./scripts/bootstrap-backend.sh erp-pipeline prod us-east-2
+
+# Dev (FinOps $0 — public subnets, sin NAT, deletion_protection=false)
+terraform -chdir=terraform init -backend-config=environments/backend-dev.hcl
+terraform -chdir=terraform plan -var-file=environments/dev.tfvars
+terraform -chdir=terraform apply -var-file=environments/dev.tfvars
+
+# Prod (HA — multi_az=true, backup 7d, deletion_protection=true, gp3 encrypted)
+terraform -chdir=terraform init -reconfigure -backend-config=environments/backend-prod.hcl
+terraform -chdir=terraform plan -var-file=environments/prod.tfvars
+# Ver diff sin tocar dev: plan prod no debe afectar dev (Fase 7 métrica)
+
+# Toggles (Fase 7.3/7.6) en tfvars — default FinOps, prod toggle documentado:
+#   enable_nat_gateway=false         # → true crea private subnets + NAT (~$32/mes) + EIP
+#   enable_service_discovery=false   # → true crea Cloud Map erp.local (productos.erp.local:3001)
+#   ecr_image_retention_count=5      # → 5 imágenes para rollback (Fase 7.5) vs 1 peligroso
+```
+
+- **TaskDef templated:** `terraform/modules/compute/templates/taskdef.json.tftpl:1` via `templatefile` en `compute/main.tf:155-200` (Fase 7.4) — separa infra de contenedores.
+- **Teardown guard:** `teardown.yml:15-60` bloquea `prod` (`if: environment != prod`) + requiere `confirm=destroy` + GitHub Environment `destroy` para aprobación manual (Fase 7.8).
+- **Runbooks:** `docs/runbooks/deploy.md:1`, `rollback.md:1`, `drift.md:1` (Fase 7.9) — cómo deployar, rollback por circuit breaker y detectar drift.
+
 - **Hot-reload:** `docker-compose.override.yml:12-62` monta `services/*/src` + `packages/shared/src` y usa `npm run dev` (nodemon). Edita `services/productos/src/routes/productos.js` y recarga sin rebuild.
 - **Prod-like sin hot-reload:** `make prod` o `docker compose -f docker-compose.yml up --build`
 - **Logs/ps:** `make logs` / `make ps` o `./scripts/dev.sh logs`

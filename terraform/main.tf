@@ -50,8 +50,14 @@ provider "aws" {
   }
 }
 
+# Fase 7 — locals para prod guards (7.2) cuando var es null
+locals {
+  is_prod                     = var.environment == "prod"
+  effective_deletion_protection = var.enable_deletion_protection != null ? var.enable_deletion_protection : local.is_prod
+}
+
 # -----------------------------------------------------------------------------
-# Module: networking
+# Module: networking (Fase 7.3 private subnets + NAT toggle)
 # Creates the VPC, subnets, IGW, route tables, and security groups.
 # All other modules depend on its outputs.
 # -----------------------------------------------------------------------------
@@ -62,10 +68,12 @@ module "networking" {
   environment        = var.environment
   vpc_cidr           = "10.0.0.0/16"
   availability_zones = ["${var.aws_region}a", "${var.aws_region}b"]
+
+  enable_nat_gateway = var.enable_nat_gateway
 }
 
 # -----------------------------------------------------------------------------
-# Module: database
+# Module: database (Fase 7.2 prod guards)
 # Creates RDS PostgreSQL.
 # Uses networking outputs to place resources in the correct subnets/SGs.
 # -----------------------------------------------------------------------------
@@ -83,7 +91,8 @@ module "database" {
   # RDS is placed in the same subnets as ECS tasks.
   # sg_db ensures RDS is NOT reachable from the internet despite
   # being in a public subnet (see ADR-001).
-  subnet_ids = module.networking.public_subnet_ids
+  subnet_ids                   = module.networking.public_subnet_ids
+  enable_deletion_protection   = local.effective_deletion_protection
 }
 
 # -----------------------------------------------------------------------------
@@ -107,7 +116,7 @@ module "secrets" {
 }
 
 # -----------------------------------------------------------------------------
-# Module: compute
+# Module: compute (Fase 7.4 taskdef template + 7.5 ECR 5 + 7.6 service discovery)
 # Creates the ECR repository, ECS cluster, and a placeholder task definition.
 # Week 2 will replace the placeholder with the real application image via CI/CD.
 # -----------------------------------------------------------------------------
@@ -127,6 +136,12 @@ module "compute" {
   db_secret_arn = module.secrets.db_secret_arn
 
   # Networking — ECS tasks run in public subnets with public IPs (see ADR-001)
+  # Fase 7.3: cuando enable_nat_gateway=true, ECS puede correr en private subnets;
+  # por defecto sigue en public (FinOps). Fase 7.6: service discovery necesita vpc_id.
   subnet_ids = module.networking.public_subnet_ids
   sg_app_id  = module.networking.sg_app_id
+  vpc_id     = module.networking.vpc_id
+
+  enable_service_discovery    = var.enable_service_discovery
+  ecr_image_retention_count   = var.ecr_image_retention_count
 }

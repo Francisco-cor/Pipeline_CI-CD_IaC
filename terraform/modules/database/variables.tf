@@ -31,3 +31,9 @@ variable "subnet_ids" {
   description = "List of subnet IDs for the RDS and ElastiCache subnet groups. Must span at least two AZs (AWS requirement for DB subnet groups)."
   type        = list(string)
 }
+
+variable "enable_deletion_protection" {
+  description = "Fase 7.2 — prod guard. True impide destroy; false permite destroy en dev. Root computa coalesce(var.enable_deletion_protection, is_prod)."
+  type        = bool
+  default     = false
+}

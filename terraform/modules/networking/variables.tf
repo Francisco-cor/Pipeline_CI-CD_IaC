@@ -23,3 +23,9 @@ variable "availability_zones" {
   type        = list(string)
   default     = ["us-east-2a", "us-east-2b"]
 }
+
+variable "enable_nat_gateway" {
+  description = "Fase 7.3 — toggle NAT Gateway + private subnets. False mantiene FinOps $0 (solo public). True crea private subnets + NAT + EIP para futura migración a private ECS + ALB (Fase 10). Coste ~$32/mes si true."
+  type        = bool
+  default     = false
+}

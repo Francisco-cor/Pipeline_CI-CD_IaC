@@ -57,3 +57,36 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+# -----------------------------------------------------------------------------
+# Fase 7 — Prod guards & FinOps toggles
+# -----------------------------------------------------------------------------
+
+variable "enable_nat_gateway" {
+  description = "Create NAT Gateway + private subnets for prod-grade isolation. False keeps FinOps $0 (public subnets only, ADR-001). Toggle true when enable_alb=true (Fase 10)."
+  type        = bool
+  default     = false
+}
+
+variable "enable_deletion_protection" {
+  description = "Override deletion_protection for RDS. Null = auto (true en prod, false en dev/staging). True impide terraform destroy sin desactivar primero."
+  type        = bool
+  default     = null
+}
+
+variable "enable_service_discovery" {
+  description = "Create Cloud Map private DNS namespace erp.local for service-to-service HTTP (productos.erp.local). Prepares Fase 10 decoupling."
+  type        = bool
+  default     = false
+}
+
+variable "ecr_image_retention_count" {
+  description = "Number of tagged ECR images to keep for rollback (Fase 7.5). Antes 1 era peligroso; 5 permite rollback a 4 versiones previas."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.ecr_image_retention_count >= 1 && var.ecr_image_retention_count <= 20
+    error_message = "ecr_image_retention_count must be 1..20."
+  }
+}
