@@ -3,9 +3,10 @@
 // Exit 0 = success → other containers start.
 // Exit 1 = failure → other containers don't start, ECS marks deployment failed.
 
-const { Client } = require('pg');
 const fs = require('fs');
 const path = require('path');
+
+const { Client } = require('pg');
 
 async function runMigrations() {
   const client = new Client({

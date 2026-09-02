@@ -27,7 +27,7 @@ function createPool(opts = {}) {
     connectionTimeoutMillis: 2000,
   });
 
-  pool.on('error', (err) => {
+  pool.on('error', err => {
     // shared logger evita require circular; usa console.error directo para idle errors.
     // El proceso debe terminar para que ECS lo reinicie.
     console.error(
