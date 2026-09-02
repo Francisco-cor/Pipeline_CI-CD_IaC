@@ -7,32 +7,42 @@
 - **Node 20** (`nvm use` lee `.nvmrc:1`), Docker, Terraform >=1.5, AWS CLI v2 (solo si tocas infra).
 - Editor con `.editorconfig:1` + Prettier (`.prettierrc:1`).
 
-## Flujo local (sin AWS)
+## Flujo local (sin AWS) — Fase 6
 
 ```bash
 nvm use           # o fnm/asdf con .tool-versions:1
-npm --workspaces # Fase 2: root workspaces (hoy: por servicio)
+npm install       # workspaces: root + services/* + packages/* (Fase 2)
 
-# Lint + format (por servicio, hasta Fase 2)
-npm run lint --workspace=svc-productos
-npm run format:check --workspace=svc-productos
+# Lint + format (Fase 6.5: eslint --cache + prettier check)
+npm run lint -- --cache --cache-location .eslintcache
+npx prettier --check "services/*/src/**/*.js" "packages/*/src/**/*.js" "migrations/**/*.js"
+make lint && make format-check
 
-# Tests (requieren postgres — ver docker-compose en Fase 2)
-npm test
+# Tests (requieren postgres — docker compose)
+npm test                 # por workspace
+docker compose up -d --build --wait && bash scripts/e2e.sh  # e2e (Fase 4.8)
+docker compose down -v
 
-# Terraform
+# Terraform (Fase 6.4)
 terraform -chdir=terraform fmt -check -recursive
-terraform -chdir=terraform validate
-```
+terraform -chdir=terraform init -backend=false && terraform -chdir=terraform validate
+tflint --init --chdir=terraform && tflint --recursive --chdir=terraform  # requiere tflint
+checkov -d terraform --quiet  # requiere checkov
 
-> **Fase 2** añadirá `docker compose up --build` y `make dev`. Hoy cada servicio se prueba aislado.
+# Sec (Fase 6.3)
+gitleaks detect --source . --verbose
+trivy fs --severity HIGH,CRITICAL --ignore-unfixed .
+
+# Verify todo antes de push (Fase 6)
+make verify  # lint + format-check + compose config + tf fmt/validate
+```
 
 ## Convenciones
 
 - **Commits:** `tipo(scope): mensaje` — `feat`, `fix`, `chore`, `docs`, `ci`, `infra`, `sec`, `test`, `refactor`.
 - **Ramas:** `feat/<scope>` `fix/<scope>` `chore/<scope>` desde `main`.
-- **PRs:** 1 PR = 1 fase o 1 scope, CI debe estar verde (`pipeline.yml:18-235`).
-- **Formato:** Prettier + ESLint (`eslint:recommended` + `plugin:import/recommended` en `.eslintrc.js:8`). No commitear sin `npm run lint`.
+- **PRs:** 1 PR = 1 fase o 1 scope, CI debe estar verde (`pipeline.yml:18-711` Fase 6: concurrency + gitleaks/trivy + tflint/checkov + plan comment).
+- **Formato:** Prettier + ESLint (`eslint:recommended` + `plugin:import/recommended` en `.eslintrc.js:8`) con `eslint --cache` (`pipeline.yml:130-134`). No commitear sin `npm run lint -- --cache` + `npx prettier --check`.
 
 ## Infra (Terraform)
 
@@ -54,10 +64,11 @@ terraform -chdir=terraform plan
 - No añadir secretos en código/env. Usa SSM Parameter Store (`/erp/...` en `terraform/modules/secrets/main.tf:23`).
 - CI usa OIDC (`terraform/cicd.tf:17-65`, ADR-002). No crear IAM users con keys.
 
-## Tests
+## Tests (Fase 4 + 6.6)
 
-- Cada servicio: `jest --forceExit` con postgres real (service container en CI `pipeline.yml:76-89`).
-- Añade factory/fixtures si tocas `migrations/sql/*` — migraciones deben ser idempotentes (`IF NOT EXISTS`).
+- Cada servicio: `jest --forceExit --coverage` con postgres real (service container en CI `pipeline.yml:242-304`), threshold 80% (`services/productos/package.json:44`), artifact `coverage-*`.
+- e2e: `docker compose up --build --wait` + `scripts/e2e.sh` (`pipeline.yml:310-339`).
+- Añade factory/fixtures si tocas `migrations/sql/*` — migraciones deben ser idempotentes (`IF NOT EXISTS`, `schema_migrations` en `migrations/run.js:14-48` Fase 5).
 
 ## Docs
 
@@ -67,4 +78,3 @@ terraform -chdir=terraform plan
 ## Dudas
 
 Abre issue con label `question` o comenta en PR. Para roadmap privado Fase 1-11 ver `PLAN_ELEVACION_11_FASES.md` (gitignored).
-

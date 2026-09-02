@@ -3,7 +3,7 @@
 # Fase 2: agrega atajos para compose, lint, test, format
 # Uso: make help
 
-.PHONY: help dev dev-detached prod down logs ps test lint lint-fix format format-check nuke clean verify
+.PHONY: help dev dev-detached prod down logs ps test lint lint-fix format format-check nuke clean verify tf-fmt tf-validate tf-lint tf-checkov sec-scan
 
 # Por defecto muestra ayuda
 help:
@@ -14,12 +14,16 @@ help:
 	@echo "  make logs           - docker compose logs -f"
 	@echo "  make ps             - docker compose ps"
 	@echo "  make test           - npm test en workspaces (requiere postgres — usa compose)"
-	@echo "  make lint           - eslint en todos los workspaces"
+	@echo "  make lint           - eslint --cache en todos los workspaces (Fase 6.5)"
 	@echo "  make lint-fix       - eslint --fix"
 	@echo "  make format         - prettier --write"
-	@echo "  make format-check   - prettier --check"
+	@echo "  make format-check   - prettier --check (Fase 6.5)"
+	@echo "  make tf-validate    - terraform init -backend=false && validate (Fase 6.4)"
+	@echo "  make tf-lint        - tflint --init && --recursive (Fase 6.4)"
+	@echo "  make tf-checkov     - checkov -d terraform --quiet (Fase 6.4)"
+	@echo "  make sec-scan       - gitleaks detect + trivy fs (Fase 6.3)"
 	@echo "  make nuke           - down -v --remove-orphans (borra pgdata)"
-	@echo "  make verify         - lint + format-check + compose config"
+	@echo "  make verify         - lint + format-check + compose config + tf fmt/validate (Fase 6)"
 
 # ---------------------------------------------------------------------------
 # Compose
@@ -50,8 +54,8 @@ nuke:
 # Calidad
 # ---------------------------------------------------------------------------
 lint:
-	npm run lint --workspaces --if-present
-	npm run lint
+	npm run lint --workspaces --if-present -- --cache --cache-location .eslintcache
+	npm run lint -- --cache --cache-location .eslintcache
 
 lint-fix:
 	npm run lint:fix --workspaces --if-present
@@ -67,7 +71,7 @@ test:
 	npm run test --workspaces --if-present
 
 # ---------------------------------------------------------------------------
-# Infra
+# Infra (Fase 6.4)
 # ---------------------------------------------------------------------------
 tf-fmt:
 	terraform -chdir=terraform fmt -recursive
@@ -75,10 +79,24 @@ tf-fmt:
 tf-validate:
 	terraform -chdir=terraform init -backend=false && terraform -chdir=terraform validate
 
+tf-lint:
+	tflint --init --chdir=terraform && tflint --recursive --chdir=terraform --format compact
+
+tf-checkov:
+	checkov -d terraform --quiet --framework terraform --soft-fail
+
 # ---------------------------------------------------------------------------
-# Verify (lo que debe estar verde antes de push)
+# Sec (Fase 6.3)
+# ---------------------------------------------------------------------------
+sec-scan:
+	gitleaks detect --source . --verbose || true
+	trivy fs --severity HIGH,CRITICAL --ignore-unfixed .
+
+# ---------------------------------------------------------------------------
+# Verify (lo que debe estar verde antes de push) — Fase 6
 # ---------------------------------------------------------------------------
 verify: lint format-check
 	docker compose config -q && echo "compose config: ok"
-	terraform -chdir=terraform fmt -check -recursive && echo "terraform fmt: ok" || echo "terraform fmt: run 'make tf-fmt'"
-	@echo "verify: ok"
+	terraform -chdir=terraform fmt -check -recursive && echo "terraform fmt: ok" || (echo "terraform fmt: run 'make tf-fmt'" && exit 1)
+	terraform -chdir=terraform init -backend=false -input=false >/dev/null && terraform -chdir=terraform validate -no-color && echo "terraform validate: ok"
+	@echo "verify: ok — lint + format + compose + tf fmt/validate (add tf-lint/tf-checkov if installed)"

@@ -68,3 +68,22 @@ Thumbs.db
 *.bak
 *~
 .vstoken
+
+# -----------------------------------------------------------------------------
+# Fase 6 — CI caches & artifacts (no commitear)
+# -----------------------------------------------------------------------------
+.eslintcache
+.prettiercache
+coverage/
+.nyc_output/
+junit.xml
+checkov.sarif
+trivy-*.sarif
+.tflint.hcl.lock.hcl
+terraform/.tflint.hcl.lock.hcl
+plan.txt
+tfplan
+terraform/tfplan
+terraform/plan.txt
+terraform/checkov.sarif
+terraform/.terraform/

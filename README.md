@@ -16,11 +16,11 @@ This project is a microservices-based ERP for manufacturing, built with Node.js 
 
 ## Tech Stack
 
-*   **Infrastructure:** AWS (ECS Fargate, RDS PostgreSQL, ECR, SSM Parameter Store, CloudWatch, SNS).
-*   **IaC:** Terraform (Modular and highly scalable architecture).
-*   **CI/CD:** GitHub Actions (Lint → Test → Build → Deploy).
-*   **Backend:** Node.js (Express), PostgreSQL 15.
-*   **Proxy:** NGINX (Sidecar Pattern).
+- **Infrastructure:** AWS (ECS Fargate, RDS PostgreSQL, ECR, SSM Parameter Store, CloudWatch, SNS).
+- **IaC:** Terraform (Modular and highly scalable architecture).
+- **CI/CD:** GitHub Actions (Lint → Test → Build → Deploy).
+- **Backend:** Node.js (Express), PostgreSQL 15.
+- **Proxy:** NGINX (Sidecar Pattern).
 
 ---
 
@@ -73,9 +73,10 @@ graph TB
 ```
 
 **Traffic Flow:** Internet → ECS Public IP :80 → NGINX → Microservices on `localhost`.
-*(No ALB or NAT Gateway — See [ADR-001](docs/adr/ADR-001-public-subnets-no-nat-gateway.md))*
+_(No ALB or NAT Gateway — See [ADR-001](docs/adr/ADR-001-public-subnets-no-nat-gateway.md))_
 
 ### Infrastructure Status
+
 The following screenshot confirms the ECS Fargate tasks running correctly in the AWS Console, hosting the NGINX sidecar and the three microservices.
 
 ![AWS ECS Console](docs/screenshots/aws_console.png)
@@ -95,24 +96,36 @@ The following screenshot confirms the ECS Fargate tasks running correctly in the
 
 Optimized the infrastructure to run enterprise-grade services with a fixed cost of **$0 USD**.
 
-| Technical Decision | Monthly Savings | Traditional Alternative |
-| :--- | :--- | :--- |
-| **Public Subnets + SG** | ~$32.00 | NAT Gateway |
-| **NGINX Sidecar** | ~$16.00 | Application Load Balancer (ALB) |
-| **SSM Parameter Store** | ~$0.40/secret | AWS Secrets Manager |
-| **Total Saved** | **~$48.40/mo** | |
+| Technical Decision      | Monthly Savings | Traditional Alternative         |
+| :---------------------- | :-------------- | :------------------------------ |
+| **Public Subnets + SG** | ~$32.00         | NAT Gateway                     |
+| **NGINX Sidecar**       | ~$16.00         | Application Load Balancer (ALB) |
+| **SSM Parameter Store** | ~$0.40/secret   | AWS Secrets Manager             |
+| **Total Saved**         | **~$48.40/mo**  |                                 |
 
 ---
 
-## CI/CD Pipeline & Resilience
+## CI/CD Pipeline & Resilience (Fase 6)
 
-The GitHub Actions pipeline ensures that broken code never reaches production:
+The GitHub Actions pipeline (`pipeline.yml:18-711`) ensures broken code never reaches production — fast, cheap and auditable (`<6m` en PR):
 
 ![GitHub Actions Workflow](docs/screenshots/github_actions.png)
 
-1.  **Lint & Test:** Code is linted and tested against a real PostgreSQL container.
-2.  **Containerize:** Images are built and pushed to AWS ECR.
-3.  **Deploy:** The ECS service is updated with the new task definition. ECS's deployment circuit breaker handles automatic rollbacks if health checks fail.
+| Stage              | Jobs                                             | Qué hace                                                                                                                                                                                 | Cache / skip                                               |
+| ------------------ | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **Concurrency**    | `concurrency: group workflow-ref`                | cancela runs obsoletos del mismo branch                                                                                                                                                  | —                                                          |
+| **Detect changes** | `changes` (`dorny/paths-filter@v3`)              | determina `productos/ordenes/stock/nginx/migrations/terraform` cambiados                                                                                                                 | —                                                          |
+| **Lint & Format**  | `lint` matrix + `format`                         | `eslint --cache` por servicio (`.eslintcache` en `actions/cache@v4`) + `prettier --check`                                                                                                | eslint cache + npm cache                                   |
+| **Secrets**        | `gitleaks`                                       | `gitleaks/gitleaks-action@v2` full history                                                                                                                                               | —                                                          |
+| **Vuln FS**        | `trivy-fs`                                       | `aquasecurity/trivy-action` `fs` `HIGH,CRITICAL` → SARIF → code scanning                                                                                                                 | —                                                          |
+| **Test**           | `test` matrix (postgres:15)                      | `jest --coverage` por servicio + `migrations/run.js` previo + `upload-artifact coverage-*`                                                                                               | npm cache por `package-lock.json`                          |
+| **e2e**            | `e2e`                                            | `docker compose up --build --wait` + `scripts/e2e.sh` (nginx→servicios)                                                                                                                  | —                                                          |
+| **Infra**          | `terraform` (solo PR)                            | `fmt -check` → `init -backend=false` → `validate` → `tflint --init/--recursive` → `checkov` (SARIF) → `init` con backend OIDC → `plan` → comment `sticky-pull-request-comment` + summary | —                                                          |
+| **Build**          | `build` (solo `push main` + `any_service==true`) | `docker/setup-buildx-action@v3` + `docker/build-push-action@v6` por servicio **cambiado** con `cache-from/to: type=gha,mode=max` → ECR `:sha-<short>` + `:latest`                        | `type=gha` (~60% layer hit) + skip si `paths-filter` false |
+| **Vuln image**     | `trivy-image` matrix                             | `trivy image` sobre ECR `CRITICAL,HIGH` (soft-fail) → SARIF                                                                                                                              | —                                                          |
+| **Deploy**         | `deploy`                                         | `scripts/deploy.sh` swap JSON + `aws ecs wait services-stable` (circuit breaker `rollback=true` en `compute/main.tf:375`)                                                                | —                                                          |
+
+**Resiliencia deploy:** `deployment_circuit_breaker { rollback=true }` + `deploy.sh` verifica digest. Si `health` falla, ECS vuelve al TaskDef previo sin intervención.
 
 ---
 
@@ -120,8 +133,8 @@ The GitHub Actions pipeline ensures that broken code never reaches production:
 
 The system comes with industrial seed data (BOM). Below are examples of the JSON responses from the microservices.
 
-| Products API (`/api/productos`) | Orders API (`/api/ordenes`) |
-| :---: | :---: |
+|                 Products API (`/api/productos`)                 |                 Orders API (`/api/ordenes`)                 |
+| :-------------------------------------------------------------: | :---------------------------------------------------------: |
 | ![Products API Output](docs/screenshots/json_productos_api.png) | ![Orders API Output](docs/screenshots/json_ordenes_api.png) |
 
 ---
@@ -137,10 +150,12 @@ Application logs and performance metrics are centralized in CloudWatch.
 ## Troubleshooting: Lessons Learned
 
 ### 1. Resolving RDS SSL Issues
+
 **Problem:** When connecting services to RDS, requests failed due to protocol errors because AWS RDS requires SSL/TLS by default.
 **Solution:** Implemented an auto-detection logic in the `pg` driver. If the database host is an AWS endpoint (`amazonaws.com`), we enforce `ssl: { rejectUnauthorized: false }`. This ensures security in transit without the complexity of managing local certificates during CI.
 
 ### 2. Database Password Sanitization
+
 **Problem:** Randomly generated passwords containing URI-delimiters (like `@`, `:`, `/`) corrupted the `DATABASE_URL` string, causing `ERR_INVALID_URL` in the Node.js runtime.
 **Solution:** Refined the Terraform `random_password` resource to exclude conflictive special characters while maintaining high entropy, ensuring the resulting connection string remains a valid URI without requiring complex encoding logic.
 
@@ -181,13 +196,13 @@ curl http://localhost:80/api/productos | jq
 
 **Troubleshooting local:**
 
-| Síntoma | Causa | Fix |
-|---|---|---|
-| `migrations` exit 1 | `DATABASE_URL` mal o postgres no healthy | `docker compose logs postgres` + `docker compose logs migrations` |
-| `productos` health 500 `db: disconnected` | `postgres` no listo o `DATABASE_URL` apunta a host equivocado | Verifica `.env` usa `postgres:5432` (no `localhost`) dentro de compose |
-| `nginx` 502 | upstreams no resuelven | En compose se usa `nginx/nginx.local.conf:28-30` (`productos:3001`), no `127.0.0.1`; no montar `nginx.conf` de ECS |
-| `require('@erp/shared')` not found | workspaces no instalados | `npm install` en root; verifica `node_modules/@erp/shared/src/logger.js` existe |
-| `eslint import/order` | grupos sin línea vacía | `npm run lint:fix` |
+| Síntoma                                   | Causa                                                         | Fix                                                                                                                |
+| ----------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `migrations` exit 1                       | `DATABASE_URL` mal o postgres no healthy                      | `docker compose logs postgres` + `docker compose logs migrations`                                                  |
+| `productos` health 500 `db: disconnected` | `postgres` no listo o `DATABASE_URL` apunta a host equivocado | Verifica `.env` usa `postgres:5432` (no `localhost`) dentro de compose                                             |
+| `nginx` 502                               | upstreams no resuelven                                        | En compose se usa `nginx/nginx.local.conf:28-30` (`productos:3001`), no `127.0.0.1`; no montar `nginx.conf` de ECS |
+| `require('@erp/shared')` not found        | workspaces no instalados                                      | `npm install` en root; verifica `node_modules/@erp/shared/src/logger.js` existe                                    |
+| `eslint import/order`                     | grupos sin línea vacía                                        | `npm run lint:fix`                                                                                                 |
 
 > Arquitectura local vs ECS: compose usa `upstreams productos:3001` (DNS Docker) vs ECS `127.0.0.1:3001` (awsvpc sidecar). Ver `docs/ARCHITECTURE.md:1` y `nginx/nginx.local.conf:1`.
 
@@ -198,4 +213,3 @@ make verify   # lint + format-check + compose config + terraform fmt -check
 make lint && make format-check
 docker compose config -q && echo "compose ok"
 ```
-
