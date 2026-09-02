@@ -5,13 +5,18 @@
   "description": "Root workspace for ERP Pipeline — shared lint/format. See services/*/package.json",
   "workspaces": [
     "services/*",
-    "migrations"
+    "migrations",
+    "packages/*"
   ],
   "scripts": {
     "lint": "eslint . --ext .js",
     "lint:fix": "eslint . --ext .js --fix",
     "format": "prettier --write \"**/*.{js,json,md,yml,yaml}\"",
-    "format:check": "prettier --check \"**/*.{js,json,md,yml,yaml}\""
+    "format:check": "prettier --check \"**/*.{js,json,md,yml,yaml}\"",
+    "dev": "docker compose up --build",
+    "dev:detached": "docker compose up --build -d",
+    "test": "npm run test --workspaces --if-present",
+    "clean": "docker compose down -v --remove-orphans"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
