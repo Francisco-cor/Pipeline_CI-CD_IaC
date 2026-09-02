@@ -1,0 +1,21 @@
+{
+  "name": "@erp/test-helpers",
+  "version": "1.0.0",
+  "description": "Test factories and helpers for ERP Pipeline",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@faker-js/faker": "^8.4.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-plugin-import": "^2.29.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

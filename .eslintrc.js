@@ -43,5 +43,20 @@ module.exports = {
         'no-console': 'off', // structured logger intentionally writes to stdout
       },
     },
+    {
+      files: ['scripts/k6/**/*.js'],
+      env: { node: true, jest: false },
+      globals: { __ENV: 'readonly' },
+      rules: {
+        'import/no-unresolved': 'off',
+        'no-undef': 'off',
+      },
+    },
+    {
+      files: ['scripts/e2e.sh'],
+      rules: {
+        'no-console': 'off',
+      },
+    },
   ],
 };
