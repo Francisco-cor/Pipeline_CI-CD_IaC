@@ -9,9 +9,9 @@
 | [ADR-001](ADR-001-public-subnets-no-nat-gateway.md) | Public Subnets Without NAT Gateway (FinOps $0)                                         | Accepted            | 2026-03-20 |
 | [ADR-002](ADR-002-oidc-github-actions.md)           | OIDC for GitHub Actions instead of long-lived keys                                     | Accepted            | 2026-03-20 |
 | [ADR-003](ADR-003-waf.md)                           | WAF Toggle (cuando `enable_alb=true`) — ALB + WAFv2 managed rules, toggle `enable_waf` | Proposed (Fase 8.8) | 2026-09-02 |
-| ADR-004                                             | Scaling strategy (sidecar vs ALB, autoscaling)                                         | Proposed (Fase 10)  | —          |
-| ADR-005                                             | Monorepo + shared kernel (`packages/shared`)                                           | Proposed (Fase 2/3) | —          |
-| ADR-006                                             | OpenAPI 3.1 + versionado `/api/v1`                                                     | Proposed (Fase 3)   | —          |
+| [ADR-004](ADR-004-scaling-strategy.md)             | Scaling strategy — FinOps $0 → Prod toggle (ALB, autoscaling, cache, queue)           | Accepted            | 2026-09-02 |
+| [ADR-005](ADR-005-monorepo-shared-kernel.md)        | Monorepo `npm workspaces` + `packages/shared` kernel                                   | Accepted            | 2026-09-02 |
+| [ADR-006](ADR-006-openapi-versioning.md)            | OpenAPI 3.1 + versionado `/api/v1` + paginación + `AppError`                           | Accepted            | 2026-09-02 |
 
 ## Cómo proponer un ADR
 

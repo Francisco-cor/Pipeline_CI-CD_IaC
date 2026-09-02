@@ -7,22 +7,24 @@
 - **Runtime:** Node 20 + Express 4 + `pg` 8, PostgreSQL 15 en RDS `db.t3.micro`.
 - **Infra:** AWS ECS Fargate (task 0.5 vCPU/1GB), ECR, RDS, SSM Parameter Store, CloudWatch, SNS, ElastiCache/SQS opcionales (Fase 10).
 - **IaC:** Terraform 1.9+ modular (`terraform/modules/*`), backend S3+DynamoDB per env (`terraform/backend.tf:1-20` `encrypt=true` + `environments/backend-*.hcl:1` + `environments/*.tfvars:1`), `terraform/.tflint.hcl:1` + `checkov`, toggles `enable_nat_gateway/service_discovery/alb/autoscaling/redis/sqs` (Fase 7+10).
-- **CI/CD:** GitHub Actions OIDC (`terraform/cicd.tf:17-65`, `ADR-002`), `concurrency` + `paths-filter` + `lint --cache` + `gitleaks/trivy` + `tflint/checkov` + `buildx gha cache` + `coverage` (`pipeline.yml:18-711`) — Fase 6 (<6m PR), `teardown.yml:15-60` prod guard (Fase 7.8).
-- **Proxy:** NGINX sidecar (`nginx/nginx.conf:1-96`) en misma task ECS (awsvpc, `localhost`) — + ALB opcional Fase 10.4 (`compute/main.tf:320`).
+- **CI/CD:** GitHub Actions OIDC (`terraform/cicd.tf:17-65`, `ADR-002`), `concurrency` + `paths-filter` + `lint --cache` + `gitleaks/trivy` + `tflint/checkov` + `buildx gha cache` + `coverage` (`pipeline.yml:18-711`, `release.yml:1`) — Fase 6 (<6m PR), `teardown.yml:15-60` prod guard (Fase 7.8), `semantic-release` (`package.json:12`, `.releaserc.json:1`) Fase 11.6.
+- **Proxy:** NGINX sidecar (`nginx/nginx.conf:1-96`) en misma task ECS (awsvpc, `localhost`) — + ALB opcional Fase 10.4 (`compute/main.tf:320`) + BFF `gateway:3004` (`nginx.conf:102` Fase 11.1).
 - **Cache/Queue:** Redis `ioredis` + memory fallback (`cache.js:1`), SQS `@aws-sdk/client-sqs` (`queue.js:1`) — Fase 10.5/10.6.
+- **Frontend/BFF:** `frontend/{index.html,app.js,styles.css}` static dashboard `http://localhost:8080` + `services/gateway/src/index.js:1` `svc-gateway` `GET /bff/ordenes/:id` (`X-Request-Id`, circuit, BFF aggregation `ordenes.js:152` Fase 11) + OpenAPI 3.1 `docs/openapi.yaml:1` + `docs/api.md:1`.
 
 ## Layout
 
 ```
 .
-├── services/{productos,ordenes,stock}/src/
-│   ├── index.js        # express app + graceful SIGTERM
+├── services/{productos,ordenes,stock,gateway}/src/
+│   ├── index.js        # express app + graceful SIGTERM (gateway svc-gateway BFF 3004 Fase 11.1)
 │   ├── db.js           # pg Pool (max 3, ssl auto)
 │   ├── logger.js       # JSON stdout → CloudWatch
-│   ├── routes/{health,*.js}
+│   ├── routes/{health,*.js}  # ordenes → GET /:id?include=producto BFF aggregation
 │   └── __tests__/health.test.js
+├── frontend/{index.html,app.js,styles.css,Dockerfile,README.md}  # Fase 11.2 static dashboard http://localhost:8080 --profile frontend
 ├── migrations/{run.js, sql/001_*.sql ..}
-├── nginx/{nginx.conf, Dockerfile}
+├── nginx/{nginx.conf, nginx.local.conf, Dockerfile}  # Fase 11.1 BFF location /api/v1/bff/ordenes/:id
 ├── terraform/
 │   ├── main.tf               # compone networking → database → secrets → compute (locals is_prod, sqs_queue_url, redis_url)
 │   ├── variables.tf          # toggles Fase 7+10: enable_nat_gateway/deletion_protection/service_discovery/alb/autoscaling/redis/sqs
@@ -35,11 +37,13 @@
 │   │   ├── staging.tfvars + backend-staging.hcl
 │   │   └── prod.tfvars + backend-prod.hcl
 │   ├── cicd.tf               # OIDC provider + role (github_actions)
-│   ├── observability.tf      # metric filter + alarm
-│   ├── dashboard.tf          # 6 widgets
+│   ├── observability.tf      # metric filter + alarm (Fase 9.5)
+│   ├── dashboard.tf          # 6 widgets (Fase 9.4)
 │   └── backend.tf            # S3 partial config encrypt=true (Fase 7.1 — supply via -backend-config)
 ├── scripts/{build.sh,deploy.sh,chaos.sh,k6/{smoke,resilience}.js,bootstrap-backend.{sh,ps1}}
-└── docs/{adr/ADR-004-scaling-strategy.md,ARCHITECTURE.md,runbooks/{deploy,rollback,drift}.md,observability.md}
+├── .releaserc.json            # Fase 11.6 semantic-release (commit-analyzer/changelog/github/git)
+├── CHANGELOG.md               # Fase 11.6 Keep a Changelog conventional commits
+└── docs/{adr/{ADR-004..006},ARCHITECTURE.md,api.md,openapi.yaml,interview.md,demo.md,observability.md,runbooks/{deploy,rollback,drift}.md}
 ```
 
 ## Flujo de request
@@ -71,13 +75,15 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 | `sqs` (`sqs.tf:1`)                                         | `aws_sqs_queue ordenes` + `ordenes-dlq` redrive 5 (Fase 10.6 toggle `enable_sqs`)                                                                                                                                                                             | `visibility_timeout 30` + DLQ 14d                                                                                                                                                                                                                               |
 | `cache` (`cache.tf:1`)                                     | `aws_elasticache_cluster redis` `cache.t3.micro` + SG `sg_redis 6379` + subnet group (Fase 10.5 toggle `enable_redis`)                                                                                                                                       | `engine redis7`, `num_cache_nodes 1`, private o public subnets según `enable_nat_gateway`                                                                                                                                                                     |
 
-## Servicios Node (Fase 2-5 + 10)
+## Servicios Node (Fase 2-5 + 10 + 11)
 
 - **Shared kernel:** `packages/shared/src/{logger,db,errors,validate,middleware,metrics,tracing,circuitBreaker,cache,queue}.js` — monorepo `npm workspaces` (`package.json:6`), servicios importan `require('@erp/shared')` (Fase 2+10).
-- Cada servicio: `PORT` 3001/3002/3003, `GET /`, `GET /health` (SELECT 1), `GET /health/live` (sin DB) + `GET /health/ready` (DB), `GET /api/v1/*` paginado (`?page&limit&sort` + `X-Total-Count/Link`) + legacy `/api/*` (Fase 3) + `GET /productos/:id` + `PUT/DELETE` + `GET /ordenes/_circuit` stats (Fase 10).
+- Cada servicio: `PORT` 3001/3002/3003 (+ gateway 3004 Fase 11.1), `GET /`, `GET /health` (SELECT 1), `GET /health/live` (sin DB) + `GET /health/ready` (DB), `GET /api/v1/*` paginado (`?page&limit&sort` + `X-Total-Count/Link`) + legacy `/api/*` (Fase 3) + `GET /productos/:id` + `PUT/DELETE` + `GET /ordenes/_circuit` stats (Fase 10) + `GET /ordenes/:id?include=producto` BFF (`ordenes.js:152` Fase 11.1) + `GET /bff/ordenes/:id` en `svc-gateway` (`gateway/src/index.js:55`).
 - Validación `zod` (`packages/shared/src/validate.js:8`) + `helmet/cors/compression/request-id` (`middleware.js:11`) + `AppError` central (`errors.js:23`) — Fase 3.5-3.6. Fix falsy `stock ?? 0` + `Number(precio)` (Fase 3.4).
+- **API Contract:** OpenAPI 3.1 `docs/openapi.yaml:1` (`/api/productos`, `/api/v1/productos`, `/health/live`, `PaginatedProductos`, `Error`) + `docs/api.md:1` ejemplos `curl` BFF `include` + `frontend/app.js:23` `X-Cache`/`X-Total-Count` (Fase 3+11, ADR-006).
 - **Data:** `schema_migrations` + `pg_advisory_lock 727727727` + `BEGIN/COMMIT` por archivo (`migrations/run.js:14-48`), triggers `updated_at` (002/004) + `stock invariant` (`005_stock_invariant.sql:6`) + `pg_trgm GIN` (`006_trigram_search.sql:5`) — Fase 5 + stock TX `BEGIN … FOR UPDATE` (`stock.js:42` Fase 10.2).
 - **Scale:** `ordenes.js:23` HTTP `PRODUCTOS_URL` + `CircuitBreaker` fallback DB (10.1) + `queue.js:30` `publishOrdenCreada` SQS best-effort (10.6); `productos.js:15` `cache` Redis/memory `X-Cache` + invalidación `del productos:list:*` (10.5); `stock.js:42` validación stock insuficiente → `409 STOCK_CONFLICT`.
+- **Frontend/BFF:** `frontend/index.html` + `app.js` static dashboard `http://localhost:8080` (`--profile frontend`) consume `GET /api/v1/{productos,ordenes,stock}` + `GET /ordenes/:id?include=producto` + `GET /bff/ordenes/:id` + `X-Request-Id` + `409` handling; `nginx.conf:102` + `nginx.local.conf:88` BFF location `gateway:3004` profile `gateway`.
 
 ## CI/CD (Fase 6 + 7)
 
@@ -128,11 +134,22 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 - **Resiliencia verif:** `scripts/chaos.sh:1` kill/latency/cache/409 + `scripts/k6/resilience.js:1` 50 rps p95<300ms.
 - Ver `docs/adr/ADR-004-scaling-strategy.md:1` coste completo prod ~$64 vs dev $0 FinOps.
 
+## Producto & Portfolio Polish (Fase 11)
+
+- **BFF:** `services/ordenes/src/routes/ordenes.js:152` `GET /:id?include=producto` (`_bff: "orden+producto aggregated"` + fallback DB) + `services/gateway/src/index.js:55` `GET /bff/ordenes/:id` dual `CircuitBreaker` agregación `orden` + `producto` + `nginx.conf:102` `location /api/v1/bff/ordenes` `proxy_pass gateway:3004` (local) / `127.0.0.1:3004` (ECS) profile `gateway`.
+- **Frontend:** `frontend/{index.html,app.js,styles.css,Dockerfile}` static dashboard (Fase 11.2) `http://localhost:8080` (`--profile frontend`) consume `GET /api/v1/...` + `X-Cache` + `BFF include` + `409` handling + `X-Request-Id` + `frontend/README.md:1`.
+- **Demo:** `docs/demo.md:1` loom + `docs/screenshots/demo.gif` + refresh `aws_console.png/cloudwatch.png/github_actions.png/json_*.png` + `docs/screenshots` tabla (Fase 11.3).
+- **Badges:** `README.md:3` coverage `>80%` + OpenAPI 3.1 + trivy + prettier + release + demo (`pipeline.yml` `coverage` Fase 4.7 + `trivy` Fase 6.3).
+- **ADRs:** `docs/adr/ADR-005-monorepo-shared-kernel.md:1` (Fase 2) + `ADR-006-openapi-versioning.md:1` (Fase 3) + `ADR-README` index (Fase 11.5).
+- **Release:** `package.json:12` `release` `semantic-release` + `CHANGELOG.md:1` + `.releaserc.json:1` (`commit-analyzer/changelog/github/git`) + `.github/workflows/release.yml:1` push `main` tag `v*` (Fase 11.6).
+- **Interview:** `docs/interview.md:1` 17 Q&A rollback/FinOps/decoupling/cache/BFF/WAF/observabilidad (Fase 11.7) — 30m prep senior.
+- Ver `docs/interview.md:7` “¿Por qué monorepo?” + `docs/demo.md:70` comandos demo.
+
 ## Roadmap
 
-Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → production-grade. **Fases 1-10 completadas:** higiene (1) → compose+monorepo (2) → hardening API (3) → testing (4) → datos enterprise (5) → CI (6) → infra multi-env (7) → sec profunda (8) → observabilidad (9) → scale & resiliencia (10). Siguiente: Fase 11 polish (BFF, frontend, badges, release).
+Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → production-grade. **Fases 1-11 completadas:** higiene (1) → compose+monorepo (2) → hardening API (3) → testing (4) → datos enterprise (5) → CI (6) → infra multi-env (7) → sec profunda (8) → observabilidad (9) → scale & resiliencia (10) → producto & portfolio polish (11) *shippable senior*.
 
-## Runbooks (Fase 7.9 + 8.6 + 9.8 + 10.8)
+## Runbooks & Portfolio (Fase 7.9 + 8.6 + 9.8 + 10.8 + 11)
 
 - `docs/runbooks/deploy.md:1` — deploy normal + `deploy.sh` verificación digest + lock
 - `docs/runbooks/rollback.md:1` — rollback automático circuit breaker vs manual `IMAGE_TAG=sha-prev`
@@ -143,3 +160,7 @@ Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → produ
 - `docs/observability.md:1` — logs Insights + metrics/prom + dashboard + tracing + health/details (Fase 9.8)
 - `docs/runbooks/alert.md:1` — triage <5m dashboard→logs→health→traces→rollback (Fase 9.8)
 - `scripts/chaos.sh:1` + `scripts/k6/resilience.js:1` — resilience kill/cache/circuit 50 rps (Fase 10.7)
+- `docs/demo.md:1` — 2m demo loom + `frontend/index.html` `http://localhost:8080` + `GET /ordenes/:id?include=producto` BFF (Fase 11.3)
+- `docs/interview.md:1` — 17 Q&A rollback/FinOps/BFF/cache/WAF (Fase 11.7)
+- `docs/adr/ADR-005-monorepo-shared-kernel.md:1` + `ADR-006-openapi-versioning.md:1` — monorepo + OpenAPI (Fase 11.5)
+- `.releaserc.json:1` + `CHANGELOG.md:1` + `.github/workflows/release.yml:1` — semantic-release tags `v*` (Fase 11.6)

@@ -7,6 +7,12 @@
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?logo=docker&logoColor=white)
 ![Terraform](https://img.shields.io/badge/terraform-%235835CC.svg?logo=terraform&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-%23FF9900.svg?logo=amazon-aws&logoColor=white)
+![Coverage](https://img.shields.io/badge/coverage-%3E80%25-brightgreen?logo=jest)
+![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1-green?logo=openapiinitiative)
+![Trivy](https://img.shields.io/badge/trivy-scanned-blue?logo=aquasec)
+![Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4)
+![Release](https://img.shields.io/badge/release-semantic--release-e10079?logo=semantic-release)
+![Demo](https://img.shields.io/badge/demo-live-success?logo=loom)
 
 ## Project Overview
 
@@ -182,6 +188,28 @@ terraform -chdir=terraform apply -var-file=environments/prod.tfvars # enable_alb
 ```
 
 Coste prod full Fase 10: ALB $16 + NAT $32 + Redis $12 + SQS $0.40 + dashboard $3 = ~$64 vs dev $0 (toggles false).
+
+---
+
+## Demo & Portfolio Polish (Fase 11)
+
+**2m demo:** `docs/demo.md:1` + `frontend/` + `docs/interview.md:1`
+
+- **Frontend:** `frontend/index.html` static dashboard (Fase 11.2) consume `GET /api/v1/...` → `http://localhost:80` (compose) o `http://<alb-dns>` prod. Health + `X-Cache` + BFF `GET /api/v1/ordenes/:id?include=producto` + `POST stock 409` + `/metrics` links. Run: `npx serve frontend -l 8080` o `docker compose --profile frontend up` → `http://localhost:8080`. Gateway opcional `docker compose --profile gateway up` → `GET /api/v1/bff/ordenes/:id` (`services/gateway/src/index.js:1`).
+- **BFF:** `GET /api/v1/ordenes/:id?include=producto` (`services/ordenes/src/routes/ordenes.js:152` Fase 11.1) agrega producto via `CircuitBreaker` + `GET /api/v1/bff/ordenes/:id` en `svc-gateway` (`nginx.conf:102` `nginx.local.conf:88`).
+- **Demo gif:** `docs/screenshots/demo.gif` 800x450 <5MB (peek/LICEcap) + screenshots refresh `aws_console.png`/`cloudwatch.png`/`github_actions.png` (Fase 11.3).
+- **API Contract:** `docs/openapi.yaml:1` OpenAPI 3.1 + `docs/api.md:1` BFF include, pagination, `AppError` (`ADR-006`).
+- **Release:** `semantic-release` + `CHANGELOG.md:1` + tags `v1.x` (`package.json:11` + `.releaserc.json:1` Fase 11.6).
+- **Interview:** `docs/interview.md:1` 17 Q&A rollback, FinOps, decoupling, cache, BFF, WAF.
+
+```bash
+git clone https://github.com/Francisco-cor/Pipeline_CI-CD_IaC && cd Pipeline_CI-CD_IaC
+cp .env.example .env && nvm use && npm install
+docker compose up --build -d --wait && docker compose --profile frontend up -d --build
+open http://localhost:8080
+curl "http://localhost:80/api/v1/ordenes/1?include=producto" | jq
+curl "http://localhost:80/api/v1/bff/ordenes/1" | jq  # con gateway profile
+```
 
 ---
 
