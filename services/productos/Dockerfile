@@ -1,4 +1,4 @@
-FROM node:20-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 # Copy workspace manifests first for layer cache
 COPY package.json package-lock.json ./
@@ -13,7 +13,7 @@ COPY packages/shared/src ./packages/shared/src
 COPY services/productos/src ./services/productos/src
 RUN npm ci --ignore-scripts
 
-FROM node:20-alpine AS runtime
+FROM node:26-alpine AS runtime
 WORKDIR /app
 
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
