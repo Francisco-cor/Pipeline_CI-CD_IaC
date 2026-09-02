@@ -57,7 +57,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
 
       # Fase 7.8 — prod guard (fail fast)
       - name: Prod guard — refuse prod destroy
