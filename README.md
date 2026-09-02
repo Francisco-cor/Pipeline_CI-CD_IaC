@@ -157,6 +157,34 @@ Logs, métricas, traces y health sin `ssh` — ver `docs/observability.md:1` y `
 
 ---
 
+## Scale & Resilience (Fase 10)
+
+FinOps **$0 dev** (toggles false) → Prod toggle sin reescribir — ver `docs/adr/ADR-004-scaling-strategy.md:1` y `terraform/variables.tf:80`:
+
+- **Decoupling:** `ordenes → productos` via HTTP `PRODUCTOS_URL` (`http://productos.erp.local:3001` con Cloud Map `erp.local` o `http://productos:3001` en compose) + `CircuitBreaker` (`circuitBreaker.js:1` `CLOSED→OPEN→HALF_OPEN` failureThreshold 5) + fallback `SELECT 1` DB + `GET /productos/:id` (`productos.js:40`). `GET /ordenes/_circuit` stats solo dev.
+- **Stock TX:** `POST /stock` `BEGIN; SELECT … FOR UPDATE; INSERT movimientos; COMMIT` (`stock.js:42`) + trigger `005_stock_invariant.sql:6` `409 STOCK_CONFLICT` si `stock insuficiente` + invalida cache.
+- **Cache:** `GET /productos?cache` `ioredis` `REDIS_URL=redis://redis:6379` (`cache.js:1` memory fallback) + `X-Cache HIT/MISS` header (`productos.js:15` `CACHE_TTL=30` + `del productos:list:*`). `docker-compose.yml:9` `redis:7-alpine` healthcheck; `cache.tf:1` ElastiCache `cache.t3.micro` toggle `enable_redis` (~$12/mes).
+- **Queue:** `POST /ordenes` → `publishOrdenCreada` (`queue.js:1` `@aws-sdk/client-sqs` si `SQS_QUEUE_URL` else `queue_publish_noop`) + `sqs.tf:1` `ordenes` + DLQ toggle `enable_sqs` ($0.40/M). `POLL_SQS=true` consumer opcional.
+- **ALB:** toggle `enable_alb` (`compute/main.tf:320` `aws_lb` + `target_group` `ip:80 /health` + `listener 80/443 ACM`) + SG `sg_alb` + `dynamic load_balancer nginx:80` (`main.tf:241`) — dev `false` ($0 nginx sidecar), prod `true` (~$16/mes) requiere `enable_nat_gateway=true` (private subnets).
+- **Autoscaling:** toggle `enable_autoscaling` (`compute/main.tf:296` `aws_appautoscaling_target 1-4` + `policy cpu 70%` + `memory 80%` + `desired_count = min`). Prod `min 2` HA.
+- **Chaos:** `scripts/chaos.sh:1` kill-productos (circuit fallback 404), cache HIT→MISS, stock 409 + `scripts/k6/resilience.js:1` 50 rps p95<300ms p99<500ms fail<1%.
+
+```bash
+# Local con cache+circuit
+docker compose up --build -d --wait
+curl -i http://localhost:80/api/v1/productos?limit=1 | grep X-Cache # MISS → HIT
+curl http://localhost:80/api/v1/productos/1 | jq
+PRODUCTOS_URL=http://productos:3001 curl -s http://localhost:80/api/v1/ordenes/_circuit | jq
+./scripts/chaos.sh http://localhost:80 all
+k6 run scripts/k6/resilience.js -e BASE_URL=http://localhost:80
+# Prod toggle (requiere NAT)
+terraform -chdir=terraform apply -var-file=environments/prod.tfvars # enable_alb=true enable_redis=true ...
+```
+
+Coste prod full Fase 10: ALB $16 + NAT $32 + Redis $12 + SQS $0.40 + dashboard $3 = ~$64 vs dev $0 (toggles false).
+
+---
+
 ## Troubleshooting: Lessons Learned
 
 ### 1. Resolving RDS SSL Issues
@@ -208,10 +236,14 @@ terraform -chdir=terraform init -reconfigure -backend-config=environments/backen
 terraform -chdir=terraform plan -var-file=environments/prod.tfvars
 # Ver diff sin tocar dev: plan prod no debe afectar dev (Fase 7 métrica)
 
-# Toggles (Fase 7.3/7.6) en tfvars — default FinOps, prod toggle documentado:
+# Toggles (Fase 7.3/7.6 + 10) en tfvars — default FinOps, prod toggle documentado:
 #   enable_nat_gateway=false         # → true crea private subnets + NAT (~$32/mes) + EIP
 #   enable_service_discovery=false   # → true crea Cloud Map erp.local (productos.erp.local:3001)
 #   ecr_image_retention_count=5      # → 5 imágenes para rollback (Fase 7.5) vs 1 peligroso
+#   enable_alb=false                 # → true crea ALB + TG + listener (~$16/mes) Fase 10.4
+#   enable_autoscaling=false         # → true CPU 70% scale 1-4 Fase 10.3
+#   enable_redis=false               # → true ElastiCache t3.micro (~$12/mes) Fase 10.5
+#   enable_sqs=false                 # → true SQS ordenes+DLQ ($0.40/M) Fase 10.6
 ```
 
 - **TaskDef templated:** `terraform/modules/compute/templates/taskdef.json.tftpl:1` via `templatefile` en `compute/main.tf:155-200` (Fase 7.4) — separa infra de contenedores.
