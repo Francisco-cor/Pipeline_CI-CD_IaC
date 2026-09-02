@@ -110,8 +110,46 @@ jobs:
         working-directory: migrations
 
       - name: Test svc-${{ matrix.service }}
-        run: npm ci --silent && npm test
+        run: npm ci --silent && npm test -- --coverage
         working-directory: services/${{ matrix.service }}
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.service }}
+          path: services/${{ matrix.service }}/coverage
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Job 2.5: e2e smoke (compose → nginx → servicios)
+  # Runs docker compose with postgres + migrations + servicios + nginx,
+  # then curl smoke via scripts/e2e.sh. Fase 4.8
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: e2e smoke
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and up
+        run: docker compose up -d --build --wait
+      - name: Wait for nginx healthy
+        run: |
+          for i in 1 2 3 4 5 6; do
+            if curl -sf http://localhost:80/health >/dev/null; then echo "nginx ready"; exit 0; fi
+            sleep 5
+          done
+          docker compose logs
+          exit 1
+      - name: Run e2e smoke
+        run: bash scripts/e2e.sh
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Down
+        if: always()
+        run: docker compose down -v
 
   # ---------------------------------------------------------------------------
   # Job 3: Terraform (PRs only)
