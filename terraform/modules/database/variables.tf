@@ -37,3 +37,16 @@ variable "enable_deletion_protection" {
   type        = bool
   default     = false
 }
+
+variable "performance_insights_retention_days" {
+  description = "RDS Performance Insights retention period in days."
+  type        = number
+  default     = 7
+}
+
+variable "performance_insights_kms_key_id" {
+  description = "Customer-managed KMS key ID/ARN for RDS Performance Insights long-term retention."
+  type        = string
+  default     = null
+  nullable    = true
+}

@@ -103,7 +103,7 @@ Ejecución: `migrations/run.js` → `docker compose` init `migrations` (`service
 
 - `terraform/modules/database/main.tf:54-75` → `aws_db_parameter_group postgres15` con `log_min_duration_statement=1000`, `pg_stat_statements`
 - `storage_type = gp3` (vs gp2), `storage_encrypted = true`
-- `backup_retention_period = var.environment == "prod" ? 7 : 1` (antes 0), `multi_az = prod ? true : false`, `deletion_protection = prod`, `performance_insights_retention 731d prod`
+- `backup_retention_period = var.environment == "prod" ? 7 : 1` (antes 0), `multi_az = prod ? true : false`, `deletion_protection = prod`, `performance_insights_retention 7d por defecto`; retención >7d requiere CMK explícita (`performance_insights_kms_key_id`)
 
 ## Queries típicas
 

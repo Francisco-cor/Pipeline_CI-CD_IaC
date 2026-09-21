@@ -6,6 +6,8 @@ const request = require('supertest');
 const pool = require('../db');
 const app = require('../index');
 
+const uniqueName = prefix => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
 afterAll(async () => {
   await pool.end();
 });
@@ -38,14 +40,16 @@ describe('Productos API — CRUD + validation (Fase 3 & 4)', () => {
     it('201 with precio 0 and stock 0 (falsy fix)', async () => {
       const res = await request(app)
         .post('/productos')
-        .send({ nombre: 'Free', precio: 0, stock: 0 });
+        .send({ nombre: uniqueName('Free'), precio: 0, stock: 0 });
       expect(res.status).toBe(201);
       expect(Number(res.body.data.precio)).toBe(0);
       expect(res.body.data.stock).toBe(0);
     });
 
     it('201 with precio as string coerce (zod)', async () => {
-      const res = await request(app).post('/productos').send({ nombre: 'Coerce', precio: '19.99' });
+      const res = await request(app)
+        .post('/productos')
+        .send({ nombre: uniqueName('Coerce'), precio: '19.99' });
       expect(res.status).toBe(201);
       expect(Number(res.body.data.precio)).toBe(19.99);
     });
@@ -53,7 +57,7 @@ describe('Productos API — CRUD + validation (Fase 3 & 4)', () => {
     it('201 with stock as string coerce', async () => {
       const res = await request(app)
         .post('/productos')
-        .send({ nombre: 'CoerceStock', precio: 10, stock: '5' });
+        .send({ nombre: uniqueName('CoerceStock'), precio: 10, stock: '5' });
       expect(res.status).toBe(201);
       expect(res.body.data.stock).toBe(5);
     });
@@ -159,5 +163,61 @@ describe('Productos API — CRUD + validation (Fase 3 & 4)', () => {
       const res = await request(app).get('/').set('X-Request-Id', 'test-123');
       expect(res.headers['x-request-id']).toBe('test-123');
     });
+  });
+});
+
+describe('Productos API — resource and diagnostic branches', () => {
+  let productoId;
+
+  beforeAll(async () => {
+    const payload = productoFactory({ nombre: uniqueName('CRUD'), stock: 4 });
+    const res = await request(app).post('/productos').send(payload);
+    productoId = res.body.data.id;
+  });
+
+  it('gets a product, then serves the cached version', async () => {
+    const first = await request(app).get(`/productos/${productoId}`);
+    const second = await request(app).get(`/productos/${productoId}`);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.headers['x-cache']).toBe('HIT');
+  });
+
+  it('validates product ids and reports missing products', async () => {
+    expect((await request(app).get('/productos/not-an-id')).status).toBe(400);
+    expect((await request(app).get('/productos/999999999')).status).toBe(404);
+  });
+
+  it('updates and deletes a product, including invalid and missing ids', async () => {
+    const payload = productoFactory({ nombre: uniqueName('UPDATED'), stock: 8 });
+    const updated = await request(app).put(`/productos/${productoId}`).send(payload);
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.nombre).toBe(payload.nombre);
+
+    expect((await request(app).put('/productos/not-an-id').send(payload)).status).toBe(400);
+    expect((await request(app).put('/productos/999999999').send(payload)).status).toBe(404);
+
+    expect((await request(app).delete(`/productos/${productoId}`)).status).toBe(204);
+    expect((await request(app).delete('/productos/not-an-id')).status).toBe(400);
+    expect((await request(app).delete('/productos/999999999')).status).toBe(404);
+  });
+
+  it('exposes health details and metrics', async () => {
+    const details = await request(app).get('/health/details');
+    const metrics = await request(app).get('/metrics');
+    expect(details.status).toBe(200);
+    expect(details.body.pool).toBeDefined();
+    expect(metrics.status).toBe(200);
+  });
+
+  it('returns a controlled error when the list database query fails', async () => {
+    const previous = process.env.CACHE_ENABLED;
+    process.env.CACHE_ENABLED = 'false';
+    const query = jest.spyOn(pool, 'query').mockRejectedValueOnce(new Error('db unavailable'));
+    const res = await request(app).get('/productos?limit=1');
+    query.mockRestore();
+    if (previous === undefined) delete process.env.CACHE_ENABLED;
+    else process.env.CACHE_ENABLED = previous;
+    expect(res.status).toBe(500);
   });
 });

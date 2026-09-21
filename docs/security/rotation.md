@@ -35,16 +35,18 @@ terraform -chdir=terraform apply -var-file=environments/prod.tfvars
 
 **Least-privilege por env (Fase 8.5):**
 
-- `cicd.tf:56` `condition StringLike sub` ahora es dinámico:
-  - `prod`: solo `repo:owner/repo:ref:refs/heads/main` (no `pull_request` — plan prod se hace local, no en PR)
-  - `dev/staging`: `ref:refs/heads/main` + `pull_request` (plan PR permitido)
-- Esto reduce blast radius: un PR malicioso no puede asumir el rol `prod`.
+- `cicd.tf:56` `condition StringLike sub` queda limitado a
+  `repo:owner/repo:ref:refs/heads/main` para todos los entornos.
+- Los PR ejecutan únicamente validaciones estáticas sin credenciales AWS; el plan
+  con backend remoto se solicita en el workflow confiable manual y protegido.
+- Esto reduce blast radius: un PR malicioso no puede asumir el rol de CI/CD.
 
 **Checklist post-rotación:**
 
 - [ ] `terraform plan -var-file=environments/prod.tfvars` sin drift de thumbprint
 - [ ] Push a `main` verde en `Configure AWS credentials`
-- [ ] PR a `main` en `dev` verde en `terraform` job (OIDC `pull_request`)
+- [ ] PR a `main` verde en el job `Terraform checks` (sin OIDC ni backend remoto)
+- [ ] Plan remoto ejecutado desde `Terraform trusted plan` con el environment protegido
 
 ---
 

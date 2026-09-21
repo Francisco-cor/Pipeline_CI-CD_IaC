@@ -25,6 +25,33 @@ describe('GET /health', () => {
     expect(res.body.status).toBe('ok');
     expect(res.body.db).toBe('connected');
   });
+
+  it('returns 500 when the database is unavailable', async () => {
+    const query = jest.spyOn(pool, 'query').mockRejectedValueOnce(new Error('db unavailable'));
+    const res = await request(app).get('/health');
+    query.mockRestore();
+    expect(res.status).toBe(500);
+    expect(res.body.db).toBe('disconnected');
+  });
+});
+
+describe('GET /health/ready and /health/details', () => {
+  it('returns 500 for readiness when the database is unavailable', async () => {
+    const query = jest.spyOn(pool, 'query').mockRejectedValueOnce(new Error('db unavailable'));
+    const res = await request(app).get('/health/ready');
+    query.mockRestore();
+    expect(res.status).toBe(500);
+    expect(res.body.db).toBe('disconnected');
+  });
+
+  it('reports disconnected details without throwing', async () => {
+    const query = jest.spyOn(pool, 'query').mockRejectedValueOnce(new Error('db unavailable'));
+    const res = await request(app).get('/health/details');
+    query.mockRestore();
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('error');
+    expect(res.body.db).toBe('disconnected');
+  });
 });
 
 describe('POST /ordenes', () => {

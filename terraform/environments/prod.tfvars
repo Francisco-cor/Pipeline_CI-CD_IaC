@@ -29,3 +29,7 @@ autoscaling_min_capacity = 2     # prod min 2 para HA cuando autoscaling true
 autoscaling_max_capacity = 4
 enable_redis             = false # toggle true → ElastiCache t3.micro ~$12/mes (requiere enable_nat_gateway)
 enable_sqs               = false # toggle true → SQS ordenes + DLQ $0.40/millón
+
+# Performance Insights: keep the free 7-day tier until a customer-managed KMS
+# key is provisioned; values >7 require performance_insights_kms_key_id.
+performance_insights_retention_days = 7

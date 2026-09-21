@@ -87,6 +87,7 @@ async function verifyProductoExists(productoId, requestId) {
     if (
       err.code === 'CIRCUIT_OPEN' ||
       err.name === 'AbortError' ||
+      err.name === 'TypeError' ||
       err.message.includes('productos HTTP')
     ) {
       const logger = require('../logger');

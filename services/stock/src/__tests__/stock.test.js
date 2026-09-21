@@ -98,3 +98,39 @@ describe('Stock API — CRUD + validation', () => {
     });
   });
 });
+
+describe('Stock API — conflict and diagnostics', () => {
+  let lowStockProductId;
+
+  beforeAll(async () => {
+    const p = productoFactory({ nombre: `LOW-STOCK-${Date.now()}`, stock: 1 });
+    const { rows } = await pool.query(
+      'INSERT INTO productos (nombre, precio, stock) VALUES ($1, $2, $3) RETURNING id',
+      [p.nombre, p.precio, p.stock]
+    );
+    lowStockProductId = rows[0].id;
+  });
+
+  it('returns 404 for a missing product', async () => {
+    const res = await request(app)
+      .post('/stock')
+      .send({ producto_id: 999999999, cantidad: 1, tipo: 'entrada' });
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 409 when an exit exceeds available stock', async () => {
+    const res = await request(app)
+      .post('/stock')
+      .send({ producto_id: lowStockProductId, cantidad: 2, tipo: 'salida' });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('STOCK_CONFLICT');
+  });
+
+  it('exposes health details and metrics', async () => {
+    const details = await request(app).get('/health/details');
+    const metrics = await request(app).get('/metrics');
+    expect(details.status).toBe(200);
+    expect(details.body.pool).toBeDefined();
+    expect(metrics.status).toBe(200);
+  });
+});

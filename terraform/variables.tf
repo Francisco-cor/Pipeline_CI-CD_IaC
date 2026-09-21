@@ -135,3 +135,21 @@ variable "enable_sqs" {
   type        = bool
   default     = false
 }
+
+variable "performance_insights_retention_days" {
+  description = "RDS Performance Insights retention. 7 days is the free/default tier; long-term retention requires an explicitly configured customer-managed KMS key."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = contains([7, 31, 93, 186, 279, 372, 465, 558, 651, 731], var.performance_insights_retention_days)
+    error_message = "performance_insights_retention_days must be one of AWS's supported values: 7, 31, 93, 186, 279, 372, 465, 558, 651, or 731."
+  }
+}
+
+variable "performance_insights_kms_key_id" {
+  description = "Customer-managed KMS key ID/ARN for long-term RDS Performance Insights retention. Required when retention is greater than 7 days."
+  type        = string
+  default     = null
+  nullable    = true
+}

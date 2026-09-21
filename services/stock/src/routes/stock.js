@@ -38,7 +38,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// POST /stock — zod + transactional outbox (Fase 10.2) + outbox trigger sync productos.stock
+// POST /stock — zod + transacción de stock (Fase 10.2) + trigger sincroniza productos.stock
 router.post('/', validate(stockSchema), async (req, res, next) => {
   const client = await pool.connect();
   try {

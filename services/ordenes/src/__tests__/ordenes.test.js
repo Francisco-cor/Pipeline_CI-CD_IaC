@@ -108,3 +108,50 @@ describe('Ordenes API — CRUD + validation', () => {
     });
   });
 });
+
+describe('Ordenes API — resource, BFF and diagnostics', () => {
+  let ordenId;
+
+  beforeAll(async () => {
+    const res = await request(app)
+      .post('/ordenes')
+      .send(ordenFactory({ producto_id: productoId, cantidad: 1, total: 11 }));
+    ordenId = res.body.data.id;
+  });
+
+  it('gets an order with and without producto aggregation', async () => {
+    const plain = await request(app).get(`/ordenes/${ordenId}`);
+    const aggregated = await request(app).get(`/ordenes/${ordenId}?include=producto`);
+    expect(plain.status).toBe(200);
+    expect(plain.body.data.id).toBe(ordenId);
+    expect(aggregated.status).toBe(200);
+    expect(aggregated.body.producto.id).toBe(productoId);
+    expect(aggregated.body._bff).toContain('aggregated');
+  });
+
+  it('validates order ids and reports missing orders', async () => {
+    expect((await request(app).get('/ordenes/not-an-id')).status).toBe(400);
+    expect((await request(app).get('/ordenes/999999999')).status).toBe(404);
+  });
+
+  it('exposes circuit stats outside production and hides them in production', async () => {
+    const stats = await request(app).get('/ordenes/_circuit');
+    expect(stats.status).toBe(200);
+    expect(stats.body).toHaveProperty('state');
+
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const hidden = await request(app).get('/ordenes/_circuit');
+    if (previous === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previous;
+    expect(hidden.status).toBe(404);
+  });
+
+  it('exposes health details and metrics', async () => {
+    const details = await request(app).get('/health/details');
+    const metrics = await request(app).get('/metrics');
+    expect(details.status).toBe(200);
+    expect(details.body.pool).toBeDefined();
+    expect(metrics.status).toBe(200);
+  });
+});

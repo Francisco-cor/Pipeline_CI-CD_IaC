@@ -24,7 +24,7 @@
 #   6.5 eslint --cache + prettier check (format job)
 #   6.6 coverage artifact per service + job summaries
 #   6.7 paths-filter → build only changed services
-#   6.8 job summaries + PR comment con terraform plan
+#   6.8 job summaries + trusted Terraform plan workflow (manual, main only)
 # =============================================================================
 
 name: CI/CD Pipeline

@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: MIT
+# Trusted Terraform plan: remote backend access is intentionally unavailable to PRs.
+
+name: Terraform trusted plan
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to inspect with the remote state backend
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-2
+
+jobs:
+  plan:
+    name: Plan ${{ inputs.environment }}
+    # The OIDC trust policy accepts only refs/heads/main. Keeping this guard in
+    # the workflow makes a dispatch from another ref fail closed as well.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: terraform-${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Terraform init
+        working-directory: terraform
+        run: terraform init -input=false -reconfigure -backend-config="environments/backend-${{ inputs.environment }}.hcl"
+
+      - name: Terraform validate
+        working-directory: terraform
+        run: terraform validate -no-color
+
+      - name: Terraform plan
+        working-directory: terraform
+        run: |
+          terraform plan \
+            -input=false \
+            -lock-timeout=5m \
+            -no-color \
+            -var-file="environments/${{ inputs.environment }}.tfvars" \
+            -out=tfplan
+          terraform show -no-color tfplan >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ inputs.environment }}
+          path: terraform/tfplan
+          retention-days: 7

@@ -60,6 +60,7 @@ app.use(errorHandler);
 
 module.exports = app;
 
+/* istanbul ignore next -- exercised by the container entrypoint, not supertest */
 if (require.main === module) {
   const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info('svc-stock listening', { port: PORT });

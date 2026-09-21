@@ -80,6 +80,11 @@ resource "terraform_data" "configuration_guard" {
       condition     = var.autoscaling_min_capacity >= 1 && var.autoscaling_max_capacity >= var.autoscaling_min_capacity
       error_message = "autoscaling capacities must satisfy 1 <= min_capacity <= max_capacity."
     }
+
+    precondition {
+      condition     = var.performance_insights_retention_days <= 7 || var.performance_insights_kms_key_id != null
+      error_message = "RDS Performance Insights retention over 7 days requires performance_insights_kms_key_id (a customer-managed KMS key)."
+    }
   }
 }
 
@@ -118,8 +123,10 @@ module "database" {
   # RDS is placed in the same subnets as ECS tasks.
   # sg_db ensures RDS is NOT reachable from the internet despite
   # being in a public subnet (see ADR-001).
-  subnet_ids                 = module.networking.public_subnet_ids
-  enable_deletion_protection = local.effective_deletion_protection
+  subnet_ids                          = module.networking.public_subnet_ids
+  enable_deletion_protection          = local.effective_deletion_protection
+  performance_insights_retention_days = var.performance_insights_retention_days
+  performance_insights_kms_key_id     = var.performance_insights_kms_key_id
 }
 
 # -----------------------------------------------------------------------------

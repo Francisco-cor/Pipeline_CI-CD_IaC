@@ -70,14 +70,14 @@ Hit rate >80% esperado en reads 90% (`scripts/k6/resilience.js:1` mix 90% reads)
 
 ## 6. ¿Por qué SQS async `orden → stock` y cómo lo simulaste?
 
-**Outbox pattern (Fase 10.6).**
+**Publicación de eventos (Fase 10.6; outbox persistido pendiente).**
 
 - `packages/shared/src/queue.js:1` `publish(payload)` — si `SQS_QUEUE_URL` seteado `SQSClient region us-east-2` `SendMessageCommand` `MessageAttributes event/service`, si no `logger.info queue_publish_noop`. `publishOrdenCreada(orden)` best-effort tras `INSERT ordenes` (`ordenes.js:144` `.catch(()=>{})`) no bloquea respuesta `201`; `publishStockActualizado` en `stock.js:70`.
 - `terraform/sqs.tf:1` `aws_sqs_queue ordenes` + `ordenes-dlq` `redrive_policy maxReceive 5` `visibility 30s` toggle `enable_sqs` (`$0.40/M`) + identity policy limitada al task role.
 - Consumer `startConsumer(handler)` polling `ReceiveMessage Wait 10s` `Max 5` + `DeleteMessage` cuando `POLL_SQS=true` — documentado para ECS sidecar futuro (`frontend/README` no activo por defecto).
 - `taskdef.json.tftpl:62` env `SQS_QUEUE_URL`.
 
-Beneficio: `orden.creada` desacopla stock async; sin SQS, log `noop` mantiene `main` verde.
+Beneficio: `orden.creada` desacopla stock async; sin SQS, log `noop` mantiene `main` verde. Para producción falta persistir el evento en la misma transacción, reintentar y deduplicar antes de tratarlo como outbox completo.
 
 ---
 

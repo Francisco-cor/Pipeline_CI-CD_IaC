@@ -117,12 +117,13 @@ resource "aws_db_instance" "postgres" {
   deletion_protection       = var.enable_deletion_protection
   final_snapshot_identifier = var.enable_deletion_protection ? "${var.project_name}-${var.environment}-final" : null
 
-  # Performance Insights — free tier 7d, prod 731d (requires KMS if >7)
+  # Performance Insights — 7d by default. Long-term retention is opt-in and
+  # guarded at the root module so it cannot be configured without a CMK.
   performance_insights_enabled          = true
-  performance_insights_retention_period = var.environment == "prod" ? 731 : 7
+  performance_insights_retention_period = var.performance_insights_retention_days
+  performance_insights_kms_key_id       = var.performance_insights_kms_key_id
 
   tags = {
     Name = "${var.project_name}-${var.environment}-postgres"
   }
 }
-

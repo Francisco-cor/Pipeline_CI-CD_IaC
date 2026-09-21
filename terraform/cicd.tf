@@ -147,6 +147,79 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     actions   = ["iam:PassRole"]
     resources = ["arn:aws:iam::*:role/${var.project_name}-${var.environment}-*"]
   }
+
+  # The trusted Terraform plan workflow needs to read remote state and acquire
+  # the DynamoDB lock. Keep the bucket/table scoped to this environment.
+  statement {
+    sid = "TerraformBackend"
+    actions = [
+      "s3:GetBucketVersioning",
+      "s3:GetEncryptionConfiguration",
+      "s3:ListBucket",
+    ]
+    resources = ["arn:aws:s3:::${var.project_name}-tfstate-${var.environment}"]
+  }
+
+  statement {
+    sid = "TerraformStateObjects"
+    actions = [
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:PutObject",
+    ]
+    resources = ["arn:aws:s3:::${var.project_name}-tfstate-${var.environment}/terraform.tfstate"]
+  }
+
+  statement {
+    sid = "TerraformStateLock"
+    actions = [
+      "dynamodb:DeleteItem",
+      "dynamodb:DescribeTable",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+    ]
+    resources = ["arn:aws:dynamodb:${var.aws_region}:*:table/${var.project_name}-tfstate-lock"]
+  }
+
+  # Terraform refreshes managed resources during a trusted plan. These are
+  # read-only APIs; deploy mutations remain limited to the statements above.
+  statement {
+    sid = "TerraformReadOnly"
+    actions = [
+      "acm:DescribeCertificate",
+      "acm:ListCertificates",
+      "cloudformation:DescribeStacks",
+      "cloudwatch:DescribeAlarms",
+      "dynamodb:DescribeTable",
+      "ecr:DescribeRepositories",
+      "ecr:ListTagsForResource",
+      "ec2:Describe*",
+      "ecs:Describe*",
+      "ecs:List*",
+      "elasticache:Describe*",
+      "iam:GetOpenIDConnectProvider",
+      "iam:GetPolicy",
+      "iam:GetPolicyVersion",
+      "iam:GetRole",
+      "iam:ListAttachedRolePolicies",
+      "iam:ListRolePolicies",
+      "iam:ListRoleTags",
+      "logs:Describe*",
+      "rds:Describe*",
+      "route53:ListHostedZonesByName",
+      "sns:GetTopicAttributes",
+      "sns:ListSubscriptionsByTopic",
+      "sqs:GetQueueAttributes",
+      "sqs:GetQueueUrl",
+      "sqs:ListQueueTags",
+      "servicediscovery:Get*",
+      "servicediscovery:List*",
+      "wafv2:Get*",
+      "wafv2:List*",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "github_actions" {

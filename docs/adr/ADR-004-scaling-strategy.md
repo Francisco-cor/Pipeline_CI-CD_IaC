@@ -35,7 +35,7 @@ Objetivo Fase 10: **escalar sin reescribir** manteniendo `main` deployable y tog
 
 Trade-off: fallback DB mantiene compat tests sin service discovery; HTTP aporta bounded context real. Si productos lento, breaker abre y no cascadea.
 
-### 10.2 Stock transactional outbox
+### 10.2 Stock transaction and invariant
 
 - `servicios/stock/src/routes/stock.js:42` `BEGIN; SELECT ... FOR UPDATE; INSERT movimientos; COMMIT` con `client.connect()` — trigger `005_stock_invariant.sql:6` sigue aplicando `stock insuficiente → RAISE EXCEPTION`.
 - `409 STOCK_CONFLICT` si `stock insuficiente`.
@@ -69,14 +69,14 @@ Dependencia: `enable_alb=true` requiere `enable_nat_gateway=true` + `vpc_id` + `
 
 Trade-off: memory fallback mantiene dev $0 sin Redis; ElastiCache da persistencia entre tasks.
 
-### 10.6 SQS outbox `orden → stock` async (optional)
+### 10.6 SQS event publication `orden → stock` async (optional)
 
 - `packages/shared/src/queue.js:1` abstraction: si `SQS_QUEUE_URL` seteado usa `@aws-sdk/client-sqs` `SendMessage`, si no log `queue_publish_noop`.
-- `ordenes.js:140` `publishOrdenCreada(orden)` best-effort tras INSERT; `stock.js:70` `publishStockActualizado`.
+- `ordenes.js:140` `publishOrdenCreada(orden)` best-effort tras INSERT; `stock.js:70` `publishStockActualizado`. Esto es publicación posterior al commit, no un outbox transaccional persistido.
 - `terraform/sqs.tf:1` `aws_sqs_queue ordenes` + `ordenes-dlq` (DLQ 14d, redrive 5) toggle `enable_sqs=false` ($0.40/millón).
 - Consumer opcional `startConsumer` polling cuando `POLL_SQS=true` — doc para ECS sidecar futuro; no activo por defecto.
 
-Prod toggle: `enable_sqs=true` → app debe tener `sqs:SendMessage` en task role (doc, no IAM aún para simplicidad).
+Prod toggle: `enable_sqs=true` → Terraform ya agrega `sqs:SendMessage` al task role; todavía falta activar un consumidor real y garantizar outbox/idempotencia.
 
 ### 10.7 Chaos / Load
 
@@ -110,7 +110,7 @@ Prod toggle: `enable_sqs=true` → app debe tener `sqs:SendMessage` en task role
 - **Complejidad operativa:** +4 toggles + 3 servicios Redis/SQS/ALB → 6 combinaciones que testear (dev vs prod).
 - **Cache invalidation:** `productos:list:*` wildcard `del` escanea keys (ineficiente con muchos keys) — aceptable para portfolio (<500 keys).
 - **ElastiCache single node:** `num_cache_nodes=1` sin replica — aceptable dev, prod debería usar replication_group multi-AZ.
-- **SQS IAM no automatizado:** cuando `enable_sqs=true` el task role necesita `sqs:*` manual — Fase 11 podría añadir `aws_iam_role_policy`.
+- **Entrega de eventos:** el publish actual es best-effort y puede perder mensajes entre el commit y SQS; falta outbox persistido, reintentos e idempotencia del consumidor.
 
 ### Trade-offs Accepted
 
@@ -165,7 +165,7 @@ terraform -chdir=terraform apply -var-file=environments/prod.tfvars
 - `packages/shared/src/queue.js:1` SQS abstraction
 - `services/ordenes/src/routes/ordenes.js:23` decoupling + fallback
 - `services/productos/src/routes/productos.js:15` cache + `GET /:id`
-- `services/stock/src/routes/stock.js:42` transactional outbox
+- `services/stock/src/routes/stock.js:42` transacción de stock; el outbox SQS sigue pendiente
 - `docker-compose.yml:9` redis + envs
 - `scripts/chaos.sh:1` + `scripts/k6/resilience.js:1`
 - `docs/adr/ADR-001-public-subnets-no-nat-gateway.md:1` FinOps base

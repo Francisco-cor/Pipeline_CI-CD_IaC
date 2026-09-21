@@ -32,11 +32,15 @@ terraform plan -var-file=environments/prod.tfvars -no-color -detailed-exitcode; 
 # 0 = no changes, 2 = changes pending, 1 = error
 ```
 
-### 2. CI — job `terraform` en PR
+### 2. CI — validación de PR y plan confiable
 
-- `pipeline.yml:346-460` corre `fmt -check` → `validate` → `tflint` → `checkov` → `plan` en cada PR
-- El `plan` se comenta en el PR (`marocchino/sticky-pull-request-comment@v2` header `terraform-plan`)
-- Revisa el comentario: si hay `~ aws_ecs_service.app` con `taskDefinition` es normal (`ignore_changes`), si hay `aws_db_instance` con `deletion_protection` es drift real.
+- `pipeline.yml:346-460` corre `fmt -check` → `validate` → `tflint` → `checkov`
+  en cada PR, sin backend ni credenciales AWS.
+- `.github/workflows/terraform-plan.yml` ejecuta el plan remoto manualmente desde
+  `main`, con OIDC y un GitHub Environment protegido por entorno.
+- Revisa el artefacto/summary del plan: si hay `~ aws_ecs_service.app` con
+  `taskDefinition` es normal (`ignore_changes`); si hay `aws_db_instance` con
+  `deletion_protection` es drift real.
 
 ### 3. `ignore_changes` esperados (no son drift)
 
@@ -77,7 +81,8 @@ aws rds create-db-snapshot --db-instance-identifier erp-pipeline-prod-postgres -
 ## Prevención
 
 - No editar infra manualmente en consola — todo via `terraform` + PR
-- PRs requieren `terraform` job verde (`tflint` + `checkov` + `plan` comment)
+- PRs requieren `Terraform checks` verde (`tflint` + `checkov`); el plan remoto se
+  ejecuta con aprobación desde `main`.
 - `teardown.yml:1-60` tiene prod guard (`if: environment != 'prod'`) — nunca destruye prod automáticamente
 - `enable_deletion_protection=true` en `terraform/environments/prod.tfvars:12` + `terraform/modules/database/main.tf:115-118` impide `terraform destroy` accidental
 
