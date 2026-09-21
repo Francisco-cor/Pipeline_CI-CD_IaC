@@ -42,28 +42,34 @@ erDiagram
 ## Tablas
 
 ### productos
+
 - `id SERIAL PK`, `nombre VARCHAR(255) NOT NULL`, `precio NUMERIC(10,2) CHECK >=0`, `stock INTEGER DEFAULT 0 CHECK >=0`, `created_at`, `updated_at`
 - Índices: `idx_productos_nombre_trgm` GIN trigram (`006_trigram_search.sql:5`), `idx_productos_precio`, `idx_productos_stock`, `idx_productos_nombre_unique` (si no hay duplicados)
 
 ### ordenes
+
 - `producto_id INTEGER FK productos(id)`, `cantidad CHECK >0`, `total CHECK >=0`, `estado IN ('pendiente','procesada','cancelada') DEFAULT 'pendiente'`, `created_at`, `updated_at` (añadido en `004_updated_at_ordenes_stock.sql:5`)
 - Índices: `idx_ordenes_producto_id`, `idx_ordenes_estado`, `idx_ordenes_created_at DESC`
 
 ### movimientos_stock
+
 - `producto_id FK`, `cantidad CHECK >0`, `tipo IN ('entrada','salida')`, `created_at`, `updated_at` (004)
 - Índices: `idx_stock_producto_id`, `idx_stock_tipo`
 
 ### schema_migrations
+
 - `version TEXT PK` (nombre archivo `001_...sql`), `applied_at`
 - Gestionado por `migrations/run.js:14-48` (BEGIN/COMMIT por archivo, `pg_advisory_lock 727727727`, skip si ya aplicado)
 
 ## Triggers
 
 ### updated_at (002 + 004)
+
 - Función `set_updated_at()` (`002_updated_at_trigger.sql:12`) → `NEW.updated_at = NOW()`
 - Triggers: `productos_set_updated_at`, `ordenes_set_updated_at`, `movimientos_stock_set_updated_at` — `BEFORE UPDATE`
 
 ### stock invariant (005)
+
 - Función `check_and_update_stock()` (`005_stock_invariant.sql:6-56`)
   - `INSERT entrada` → `productos.stock + cantidad`
   - `INSERT salida` → `productos.stock - cantidad`, `RAISE EXCEPTION` si <0
@@ -74,16 +80,16 @@ erDiagram
 
 ## Migraciones
 
-| Archivo | Descripción |
-|---|---|
-| `001_initial.sql:1-33` | Tablas + FK + CHECK + índices básicos |
-| `002_updated_at_trigger.sql:1-33` | `set_updated_at()` + trigger productos |
-| `003_industrial_bom_seed.sql:1-29` | 6 productos industriales (WHERE NOT EXISTS) |
-| `004_updated_at_ordenes_stock.sql:1-32` | `updated_at` en ordenes/stock + triggers |
-| `005_stock_invariant.sql:1-56` | Invariante stock |
-| `006_trigram_search.sql:1-32` | `pg_trgm`, GIN, índices precio/stock/estado, unique nombre |
-| `007_additional_bom_seed.sql:1-29` | 8 productos más (WHERE NOT EXISTS) |
-| `run.js:11-65` | `pg_advisory_lock`, `schema_migrations`, transactional |
+| Archivo                                 | Descripción                                                |
+| --------------------------------------- | ---------------------------------------------------------- |
+| `001_initial.sql:1-33`                  | Tablas + FK + CHECK + índices básicos                      |
+| `002_updated_at_trigger.sql:1-33`       | `set_updated_at()` + trigger productos                     |
+| `003_industrial_bom_seed.sql:1-29`      | 6 productos industriales (WHERE NOT EXISTS)                |
+| `004_updated_at_ordenes_stock.sql:1-32` | `updated_at` en ordenes/stock + triggers                   |
+| `005_stock_invariant.sql:1-56`          | Invariante stock                                           |
+| `006_trigram_search.sql:1-32`           | `pg_trgm`, GIN, índices precio/stock/estado, unique nombre |
+| `007_additional_bom_seed.sql:1-29`      | 8 productos más (WHERE NOT EXISTS)                         |
+| `run.js:11-65`                          | `pg_advisory_lock`, `schema_migrations`, transactional     |
 
 Ejecución: `migrations/run.js` → `docker compose` init `migrations` (`service_completed_successfully`) y `terraform/modules/compute/main.tf:165-177` `dependsOn SUCCESS`.
 

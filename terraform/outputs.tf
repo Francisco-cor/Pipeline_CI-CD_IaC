@@ -17,7 +17,7 @@ output "public_subnet_ids" {
 }
 
 output "rds_endpoint" {
-  description = "Hostname of the RDS PostgreSQL instance. Use the full connection string from Secrets Manager (/erp/db-url) in application code — never this raw endpoint."
+  description = "Hostname of the RDS PostgreSQL instance. Use the full connection string from SSM (/erp-pipeline/dev/db-url) in application code — never this raw endpoint."
   value       = module.database.rds_endpoint
 }
 

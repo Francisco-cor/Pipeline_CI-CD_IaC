@@ -5,4 +5,4 @@
 
 const { createLogger } = require('@erp/shared');
 
-module.exports = createLogger('svc-productos');
+module.exports = createLogger('svc-gateway');

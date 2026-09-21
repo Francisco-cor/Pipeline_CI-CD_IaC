@@ -6,6 +6,13 @@ const API_BASE = (() => {
 })();
 
 const $ = s => document.querySelector(s);
+const escapeHtml = value =>
+  String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 const toast = (msg, isErr = true) => {
   const t = $('#toast');
   t.textContent = msg;
@@ -38,15 +45,17 @@ function renderHealth() {
     api('/api/v1/stock/health'),
     api('/api/v1/productos/health/details').catch(() => ({ ok: false })),
   ]).then(([ng, p, o, s, d]) => {
+    const safeApiBase = escapeHtml(API_BASE);
+    const pool = d.body?.pool ? escapeHtml(JSON.stringify(d.body.pool)) : '—';
     $('#health').innerHTML = `
       <div class="kv">
         <b>nginx</b><span class="${ng.ok ? 'ok' : 'err'}">${ng.status} ${ng.ok ? 'ok' : 'fail'}</span>
         <b>productos</b><span class="${p.ok ? 'ok' : 'err'}">${p.status} ${p.body?.status || ''}</span>
         <b>ordenes</b><span class="${o.ok ? 'ok' : 'err'}">${o.status} ${o.body?.status || ''}</span>
         <b>stock</b><span class="${s.ok ? 'ok' : 'err'}">${s.status} ${s.body?.status || ''}</span>
-        <b>details pool</b><span class="muted">${d.body?.pool ? JSON.stringify(d.body.pool) : '—'} uptime ${d.body?.uptime_s || '—'}s</span>
+        <b>details pool</b><span class="muted">${pool} uptime ${escapeHtml(d.body?.uptime_s || '—')}s</span>
       </div>
-      <div class="muted" style="margin-top:8px">X-Request-Id: ${ng.headers['x-request-id'] || '—'} • <a href="${API_BASE}/metrics" target="_blank">/metrics</a> • <a href="${API_BASE}/api/v1/productos?limit=1" target="_blank">api sample</a></div>
+      <div class="muted" style="margin-top:8px">X-Request-Id: ${escapeHtml(ng.headers['x-request-id'] || '—')} • <a href="${safeApiBase}/metrics" target="_blank" rel="noopener noreferrer">/metrics</a> • <a href="${safeApiBase}/api/v1/productos?limit=1" target="_blank" rel="noopener noreferrer">api sample</a></div>
     `;
   });
 }
@@ -64,7 +73,7 @@ async function loadProductos(page = 1) {
       rows
         .map(
           p => `
-    <tr><td>${p.id}</td><td>${p.nombre}</td><td>${p.precio}</td><td>${p.stock}</td></tr>
+    <tr><td>${escapeHtml(p.id)}</td><td>${escapeHtml(p.nombre)}</td><td>${escapeHtml(p.precio)}</td><td>${escapeHtml(p.stock)}</td></tr>
   `
         )
         .join('') || '<tr><td colspan=4 class="muted">vacío</td></tr>';
@@ -74,7 +83,7 @@ async function loadProductos(page = 1) {
     sel.innerHTML = rows
       .map(
         p =>
-          `<option value="${p.id}">${p.id} — ${p.nombre.slice(0, 18)} (stock ${p.stock})</option>`
+          `<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)} — ${escapeHtml(p.nombre.slice(0, 18))} (stock ${escapeHtml(p.stock)})</option>`
       )
       .join('');
   const sel2 = $('#stockProdId');
@@ -105,7 +114,7 @@ async function loadOrdenes() {
       rows
         .map(
           o => `
-    <tr><td>${o.id}</td><td>${o.producto_id}</td><td>${o.cantidad}</td><td>${o.total}</td><td><button onclick="bff(${o.id})">include</button></td></tr>
+    <tr><td>${escapeHtml(o.id)}</td><td>${escapeHtml(o.producto_id)}</td><td>${escapeHtml(o.cantidad)}</td><td>${escapeHtml(o.total)}</td><td><button onclick="bff(${Number(o.id)})">include</button></td></tr>
   `
         )
         .join('') || '<tr><td colspan=5 class="muted">vacío</td></tr>';
@@ -145,7 +154,7 @@ async function loadStock() {
       rows
         .map(
           s => `
-    <tr><td>${s.id}</td><td>${s.producto_id}</td><td>${s.cantidad}</td><td>${s.tipo}</td></tr>
+    <tr><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.producto_id)}</td><td>${escapeHtml(s.cantidad)}</td><td>${escapeHtml(s.tipo)}</td></tr>
   `
         )
         .join('') || '<tr><td colspan=4 class="muted">vacío</td></tr>';

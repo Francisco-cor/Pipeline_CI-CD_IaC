@@ -2,7 +2,7 @@
 # modules/secrets/main.tf
 #
 # Creates:
-#   1. Secrets Manager secret for DATABASE_URL (built from RDS outputs)
+#   1. SSM SecureString parameter for DATABASE_URL (built from RDS outputs)
 #   2. ECS Task Execution IAM Role (pulls images, reads secrets, writes logs)
 #   3. ECS Task IAM Role (the app itself — no permissions by default)
 #
@@ -37,7 +37,7 @@ resource "aws_ssm_parameter" "db_url" {
 # ECS (the control plane) assumes this role to:
 #   1. Pull the container image from ECR
 #   2. Create CloudWatch log streams and push log events
-#   3. Fetch secrets from Secrets Manager at container startup
+#   3. Fetch the SSM parameter at container startup
 #
 # It does NOT run inside the container — that is the task role below.
 # -----------------------------------------------------------------------------
@@ -55,7 +55,7 @@ data "aws_iam_policy_document" "ecs_task_execution_trust" {
 
 resource "aws_iam_role" "ecs_task_execution" {
   name               = "${var.project_name}-${var.environment}-ecs-task-execution-role"
-  description        = "Allows ECS to pull images from ECR, write logs to CloudWatch, and fetch secrets from Secrets Manager for ${var.project_name} ${var.environment}."
+  description        = "Allows ECS to pull images from ECR, write logs to CloudWatch, and fetch SSM parameters for ${var.project_name} ${var.environment}."
   assume_role_policy = data.aws_iam_policy_document.ecs_task_execution_trust.json
 
   tags = {
@@ -145,4 +145,27 @@ resource "aws_iam_role" "ecs_task" {
   tags = {
     Name = "${var.project_name}-${var.environment}-ecs-task-role"
   }
+}
+
+data "aws_iam_policy_document" "ecs_task_sqs" {
+  count = var.sqs_queue_arn != "" ? 1 : 0
+
+  statement {
+    sid    = "ApplicationQueueAccess"
+    effect = "Allow"
+    actions = [
+      "sqs:DeleteMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:ReceiveMessage",
+      "sqs:SendMessage",
+    ]
+    resources = [var.sqs_queue_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task_sqs" {
+  count  = var.sqs_queue_arn != "" ? 1 : 0
+  name   = "allow-application-queue"
+  role   = aws_iam_role.ecs_task.id
+  policy = data.aws_iam_policy_document.ecs_task_sqs[0].json
 }

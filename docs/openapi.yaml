@@ -333,7 +333,7 @@ components:
       properties:
         id: { type: integer, example: 1 }
         nombre: { type: string, example: Motor Trifásico 5HP mod. M3000 }
-        precio: { type: string, example: "850.50" }
+        precio: { type: string, example: '850.50' }
         stock: { type: integer, example: 12 }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -359,7 +359,7 @@ components:
         id: { type: integer }
         producto_id: { type: integer }
         cantidad: { type: integer, minimum: 1 }
-        total: { type: string, example: "100.00" }
+        total: { type: string, example: '100.00' }
         estado: { type: string, enum: [pendiente, procesada, cancelada] }
         created_at: { type: string, format: date-time }
     OrdenInput:

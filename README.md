@@ -7,7 +7,7 @@
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?logo=docker&logoColor=white)
 ![Terraform](https://img.shields.io/badge/terraform-%235835CC.svg?logo=terraform&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-%23FF9900.svg?logo=amazon-aws&logoColor=white)
-![Coverage](https://img.shields.io/badge/coverage-%3E80%25-brightgreen?logo=jest)
+![Coverage](https://img.shields.io/badge/coverage-ratchet%20target%2080%25-yellow?logo=jest)
 ![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1-green?logo=openapiinitiative)
 ![Trivy](https://img.shields.io/badge/trivy-scanned-blue?logo=aquasec)
 ![Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4)
@@ -83,7 +83,7 @@ _(No ALB or NAT Gateway — See [ADR-001](docs/adr/ADR-001-public-subnets-no-nat
 
 ### Infrastructure Status
 
-The following screenshot confirms the ECS Fargate tasks running correctly in the AWS Console, hosting the NGINX sidecar and the three microservices.
+The following screenshot confirms the ECS Fargate task running correctly in the AWS Console, hosting the NGINX sidecar and the four backend services.
 
 ![AWS ECS Console](docs/screenshots/aws_console.png)
 
@@ -96,7 +96,7 @@ The following screenshot confirms the ECS Fargate tasks running correctly in the
 - **VPC Isolation:** SG `sg_db` solo `sg_app→5432` (`networking/main.tf:163`), public subnets FinOps `enable_nat_gateway=false` (Fase 7.3), WAF toggle doc `ADR-003` cuando `enable_alb=true` (Fase 8.8).
 - **SSL/TLS:** RDS `rejectUnauthorized:true` en prod con CA bundle `certs/rds-ca-bundle.pem` montado en `/app/certs` (`packages/shared/src/db.js:18` + `migrations/run.js:15` Fase 8.2) — `download: curl https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem`.
 - **App Defense:** `helmet` + `cors` + `compression` + `express-rate-limit 100/min` + `trust proxy 1` (`packages/shared/src/middleware.js:20` + `services/*/src/index.js:14` Fase 8.3) + NGINX `limit_req_zone 30r/s burst 60 429` (`nginx.conf:14` Fase 8.4) + headers `X-Content-Type-Options/CSP/HSTS/Permissions-Policy` (`nginx.conf:36`).
-- **Supply Chain:** `gitleaks` + `trivy fs/image` (`pipeline.yml:216` Fase 6.3) + `npm audit --omit=dev --audit-level=high` + `snyk` soft-fail (`pipeline.yml:180` Fase 8.7) + `checkov/tflint` 0 high (`terraform/.tflint.hcl:1`).
+- **Supply Chain:** `gitleaks` + `trivy fs/image` (`pipeline.yml:216` Fase 6.3) + `npm audit --omit=dev --audit-level=high` + `checkov/tflint` 0 high (`terraform/.tflint.hcl:1`). Los escaneos HIGH/CRITICAL son gates bloqueantes.
 
 ---
 
@@ -119,20 +119,20 @@ The GitHub Actions pipeline (`pipeline.yml:18-748`) ensures broken code never re
 
 ![GitHub Actions Workflow](docs/screenshots/github_actions.png)
 
-| Stage              | Jobs                                             | Qué hace                                                                                                                                                                                                                                                                            | Cache / skip                                               |
-| ------------------ | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **Concurrency**    | `concurrency: group workflow-ref`                | cancela runs obsoletos del mismo branch (`pipeline.yml:38` Fase 6.1) + `teardown` `teardown-ref` (Fase 7.8)                                                                                                                                                                         | —                                                          |
-| **Detect changes** | `changes` (`dorny/paths-filter@v3`)              | determina `productos/ordenes/stock/nginx/migrations/terraform` cambiados (`pipeline.yml:58` Fase 6.7)                                                                                                                                                                               | —                                                          |
-| **Lint & Format**  | `lint` matrix + `format`                         | `eslint --cache` por servicio (`.eslintcache` en `actions/cache@v4`) + `prettier --check` (`pipeline.yml:114` Fase 6.5)                                                                                                                                                             | eslint cache + npm cache                                   |
-| **Audit**          | `audit` matrix (`productos/ordenes/stock`)       | `npm audit --audit-level=high --omit=dev` prod only + `snyk/actions/node` soft-fail (`pipeline.yml:180` Fase 8.7)                                                                                                                                                                   | npm cache                                                  |
-| **Secrets**        | `gitleaks`                                       | `gitleaks/gitleaks-action@v2` full history (`pipeline.yml:216` Fase 6.3)                                                                                                                                                                                                            | —                                                          |
-| **Vuln FS**        | `trivy-fs`                                       | `aquasecurity/trivy-action` `fs` `HIGH,CRITICAL` → SARIF → code scanning (`pipeline.yml:230` Fase 6.3)                                                                                                                                                                              | —                                                          |
-| **Test**           | `test` matrix (postgres:15)                      | `jest --coverage` por servicio + `migrations/run.js` previo + `upload-artifact coverage-*` (`pipeline.yml:242` Fase 6.6)                                                                                                                                                            | npm cache por `package-lock.json`                          |
-| **e2e**            | `e2e`                                            | `docker compose up --build --wait` + `scripts/e2e.sh` (nginx→servicios) (`pipeline.yml:310` Fase 4.8)                                                                                                                                                                               | —                                                          |
-| **Infra**          | `terraform` (solo PR)                            | `fmt -check` → `init -backend=false` → `validate` → `tflint --init/--recursive` (`terraform/.tflint.hcl:1` Fase 6.4) → `checkov` SARIF → `init -reconfigure -backend-config=environments/backend-dev.hcl` → `plan -var-file=environments/dev.tfvars` → comment + summary (Fase 7.1) | —                                                          |
-| **Build**          | `build` (solo `push main` + `any_service==true`) | `docker/setup-buildx-action@v3` + `docker/build-push-action@v6` per-service `if: productos==true` `cache-from/to: type=gha,mode=max` → ECR `:sha-<short>` + `:latest` (`pipeline.yml:467` Fase 6.2+6.7)                                                                             | `type=gha` (~60% layer hit) + skip si `paths-filter` false |
-| **Vuln image**     | `trivy-image` matrix                             | `trivy image` ECR `CRITICAL,HIGH` soft-fail → SARIF (`pipeline.yml:619` Fase 6.3)                                                                                                                                                                                                   | —                                                          |
-| **Deploy**         | `deploy`                                         | `scripts/deploy.sh:1` hardened `flock` + `ecr describe-images` digest + `register` verify + `wait services-stable` + rollback detect (`pipeline.yml:679` Fase 7.7)                                                                                                                  | —                                                          |
+| Stage              | Jobs                                               | Qué hace                                                                                                                                                                                                | Cache / skip                                               |
+| ------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **Concurrency**    | `concurrency: group workflow-ref`                  | cancela runs obsoletos del mismo branch (`pipeline.yml:38` Fase 6.1) + `teardown` `teardown-ref` (Fase 7.8)                                                                                             | —                                                          |
+| **Detect changes** | `changes` (`dorny/paths-filter@v3`)                | determina `productos/ordenes/stock/gateway/nginx/migrations/terraform` cambiados (`pipeline.yml:58` Fase 6.7)                                                                                           | —                                                          |
+| **Lint & Format**  | `lint` matrix + `format`                           | `eslint --cache` por servicio (`.eslintcache` en `actions/cache@v4`) + `prettier --check` (`pipeline.yml:114` Fase 6.5)                                                                                 | eslint cache + npm cache                                   |
+| **Audit**          | `audit` matrix (`productos/ordenes/stock/gateway`) | `npm audit --audit-level=high --omit=dev` prod only; HIGH/CRITICAL bloquean (`pipeline.yml:180` Fase 8.7)                                                                                               | npm cache                                                  |
+| **Secrets**        | `gitleaks`                                         | `gitleaks/gitleaks-action@v2` full history (`pipeline.yml:216` Fase 6.3)                                                                                                                                | —                                                          |
+| **Vuln FS**        | `trivy-fs`                                         | `aquasecurity/trivy-action` `fs` `HIGH,CRITICAL` → SARIF → code scanning (`pipeline.yml:230` Fase 6.3)                                                                                                  | —                                                          |
+| **Test**           | `test` matrix (postgres:15)                        | `jest --coverage` por servicio + `migrations/run.js` previo + `upload-artifact coverage-*` (`pipeline.yml:242` Fase 6.6)                                                                                | npm cache por `package-lock.json`                          |
+| **e2e**            | `e2e`                                              | `docker compose up --build --wait` + `scripts/e2e.sh` (nginx→servicios) (`pipeline.yml:310` Fase 4.8)                                                                                                   | —                                                          |
+| **Infra**          | `terraform` (solo PR)                              | `fmt -check` → `init -backend=false` → `validate` → `tflint --init/--recursive` (`terraform/.tflint.hcl:1` Fase 6.4) → `checkov` SARIF, sin credenciales AWS para PRs no confiables                     | —                                                          |
+| **Build**          | `build` (solo `push main` + `any_service==true`)   | `docker/setup-buildx-action@v3` + `docker/build-push-action@v6` per-service `if: productos==true` `cache-from/to: type=gha,mode=max` → ECR `:sha-<short>` + `:latest` (`pipeline.yml:467` Fase 6.2+6.7) | `type=gha` (~60% layer hit) + skip si `paths-filter` false |
+| **Vuln image**     | `trivy-image` matrix                               | `trivy image` ECR `CRITICAL,HIGH` bloqueante → SARIF (`pipeline.yml:619` Fase 6.3)                                                                                                                      | —                                                          |
+| **Deploy**         | `deploy`                                           | `scripts/deploy.sh:1` hardened `flock` + `ecr describe-images` digest + `register` verify + `wait services-stable` + rollback detect (`pipeline.yml:679` Fase 7.7)                                      | —                                                          |
 
 **Resiliencia deploy:** `deployment_circuit_breaker { rollback=true }` (`compute/main.tf:375`) + `deploy.sh` lock+digest. Si `health` falla, ECS vuelve al TaskDef previo. **Seguridad:** `checkov -d terraform 0 high fails` + `npm audit --omit=dev 0 high` + headers `curl -I` `X-Content-Type-Options: nosniff` (`nginx.conf:36` Fase 8.4).
 
@@ -195,7 +195,7 @@ Coste prod full Fase 10: ALB $16 + NAT $32 + Redis $12 + SQS $0.40 + dashboard $
 
 **2m demo:** `docs/demo.md:1` + `frontend/` + `docs/interview.md:1`
 
-- **Frontend:** `frontend/index.html` static dashboard (Fase 11.2) consume `GET /api/v1/...` → `http://localhost:80` (compose) o `http://<alb-dns>` prod. Health + `X-Cache` + BFF `GET /api/v1/ordenes/:id?include=producto` + `POST stock 409` + `/metrics` links. Run: `npx serve frontend -l 8080` o `docker compose --profile frontend up` → `http://localhost:8080`. Gateway opcional `docker compose --profile gateway up` → `GET /api/v1/bff/ordenes/:id` (`services/gateway/src/index.js:1`).
+- **Frontend:** `frontend/index.html` static dashboard (Fase 11.2) consume `GET /api/v1/...` → `http://localhost:80` (compose) o `http://<alb-dns>` prod. Health + `X-Cache` + BFF `GET /api/v1/ordenes/:id?include=producto` + `POST stock 409` + `/metrics` links. Run: `npx serve frontend -l 8080` o `docker compose --profile frontend up` → `http://localhost:8080`. El gateway arranca con el stack base → `GET /api/v1/bff/ordenes/:id` (`services/gateway/src/index.js:1`).
 - **BFF:** `GET /api/v1/ordenes/:id?include=producto` (`services/ordenes/src/routes/ordenes.js:152` Fase 11.1) agrega producto via `CircuitBreaker` + `GET /api/v1/bff/ordenes/:id` en `svc-gateway` (`nginx.conf:102` `nginx.local.conf:88`).
 - **Demo gif:** `docs/screenshots/demo.gif` 800x450 <5MB (peek/LICEcap) + screenshots refresh `aws_console.png`/`cloudwatch.png`/`github_actions.png` (Fase 11.3).
 - **API Contract:** `docs/openapi.yaml:1` OpenAPI 3.1 + `docs/api.md:1` BFF include, pagination, `AppError` (`ADR-006`).
@@ -208,7 +208,7 @@ cp .env.example .env && nvm use && npm install
 docker compose up --build -d --wait && docker compose --profile frontend up -d --build
 open http://localhost:8080
 curl "http://localhost:80/api/v1/ordenes/1?include=producto" | jq
-curl "http://localhost:80/api/v1/bff/ordenes/1" | jq  # con gateway profile
+curl "http://localhost:80/api/v1/bff/ordenes/1" | jq
 ```
 
 ---

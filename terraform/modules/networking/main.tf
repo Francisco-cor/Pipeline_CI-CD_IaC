@@ -15,7 +15,7 @@
 #
 # VPC Endpoints (NOT created here):
 #   Interface endpoints for ecr.api, ecr.dkr, and secretsmanager would allow
-#   private ECR pulls and Secrets Manager calls without internet traffic.
+#   private ECR pulls and SSM Parameter Store calls without internet traffic.
 #   However, each interface endpoint costs ~$7.30/month (730 hrs × $0.01/hr).
 #   For this free-tier project we skip them and rely on the public internet
 #   path (ECS tasks get public IPs). In production, add VPC endpoints or use
@@ -58,7 +58,7 @@ resource "aws_subnet" "public" {
 
   # map_public_ip_on_launch = true is required because we use public subnets
   # instead of a NAT Gateway. ECS tasks need a public IP to reach ECR and
-  # the Secrets Manager API. Security is enforced by sg_app (see below).
+  # the SSM Parameter Store API. Security is enforced by sg_app (see below).
   map_public_ip_on_launch = true
 
   tags = {
@@ -177,7 +177,7 @@ resource "aws_route_table_association" "private" {
 # Attached to ECS Fargate tasks.
 # Inbound: HTTP (80) and HTTPS (443) from anywhere — the nginx sidecar handles
 #          TLS termination and proxies to the Node.js app on port 3000.
-# Outbound: all traffic — needed to pull images from ECR, call Secrets Manager,
+# Outbound: all traffic — needed to pull images from ECR, call SSM Parameter Store,
 #           write logs to CloudWatch, and connect to RDS/Redis within the VPC.
 # -----------------------------------------------------------------------------
 resource "aws_security_group" "sg_app" {
@@ -203,7 +203,7 @@ resource "aws_security_group" "sg_app" {
 
   # Allow all outbound traffic so ECS can reach:
   #   - ECR (image pulls)
-  #   - Secrets Manager (secret fetching at startup)
+  #   - SSM Parameter Store (secret fetching at startup)
   #   - CloudWatch Logs (log shipping)
   #   - RDS (within the VPC)
   egress {
@@ -248,4 +248,3 @@ resource "aws_security_group" "sg_db" {
     Name = "${var.project_name}-${var.environment}-sg-db"
   }
 }
-

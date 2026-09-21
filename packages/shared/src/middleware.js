@@ -13,7 +13,11 @@ const { storage } = require('./logger');
 
 function requestIdMiddleware(req, _res, next) {
   const incoming = req.headers['x-request-id'];
-  const id = typeof incoming === 'string' && incoming.length > 0 ? incoming : uuidv4();
+  // Only propagate bounded header-safe IDs. This prevents arbitrary values
+  // (including control characters or unbounded strings) from reaching logs and
+  // response headers while preserving correlation across trusted proxies.
+  const id =
+    typeof incoming === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(incoming) ? incoming : uuidv4();
   req.id = id;
   // Fase 9.1 — guarda en AsyncLocalStorage para que logger lo incluya automáticamente
   storage.enterWith({ requestId: id });

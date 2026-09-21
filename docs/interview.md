@@ -73,7 +73,7 @@ Hit rate >80% esperado en reads 90% (`scripts/k6/resilience.js:1` mix 90% reads)
 **Outbox pattern (Fase 10.6).**
 
 - `packages/shared/src/queue.js:1` `publish(payload)` — si `SQS_QUEUE_URL` seteado `SQSClient region us-east-2` `SendMessageCommand` `MessageAttributes event/service`, si no `logger.info queue_publish_noop`. `publishOrdenCreada(orden)` best-effort tras `INSERT ordenes` (`ordenes.js:144` `.catch(()=>{})`) no bloquea respuesta `201`; `publishStockActualizado` en `stock.js:70`.
-- `terraform/sqs.tf:1` `aws_sqs_queue ordenes` + `ordenes-dlq` `redrive_policy maxReceive 5` `visibility 30s` toggle `enable_sqs` (`$0.40/M`) + `aws_sqs_queue_policy`.
+- `terraform/sqs.tf:1` `aws_sqs_queue ordenes` + `ordenes-dlq` `redrive_policy maxReceive 5` `visibility 30s` toggle `enable_sqs` (`$0.40/M`) + identity policy limitada al task role.
 - Consumer `startConsumer(handler)` polling `ReceiveMessage Wait 10s` `Max 5` + `DeleteMessage` cuando `POLL_SQS=true` — documentado para ECS sidecar futuro (`frontend/README` no activo por defecto).
 - `taskdef.json.tftpl:62` env `SQS_QUEUE_URL`.
 
@@ -128,7 +128,7 @@ Compat: `grep "if (!nombre"` =0, `openapi lint` 0, `frontend/app.js` usa `v1`.
 - `docker-compose.yml:42` `redis` + `services/*/Dockerfile:11` `COPY packages/shared/src` layer cache ~60% `buildx gha` (`pipeline.yml:467`).
 - `docker-compose.override.yml:12` monta `packages/shared/src:ro` + `services/*/src:ro` `nodemon` hot-reload sin rebuild `make dev`.
 
-Trade-off: coupling monorepo vs multi-repo — `npm run test --workspaces` + `coverage 80%` mitiga breaking; `turborepo` rechazado para portfolio 3 servicios.
+Trade-off: coupling monorepo vs multi-repo — `npm run test --workspaces` + artefactos de cobertura; el umbral 80% queda como objetivo de ratchet tras cubrir rutas faltantes; `turborepo` rechazado para portfolio 3 servicios.
 
 ---
 
@@ -150,7 +150,7 @@ Trade-off: coupling monorepo vs multi-repo — `npm run test --workspaces` + `co
 
 - `services/ordenes/src/routes/ordenes.js:152` `GET /:id` → DB `SELECT orden` + `if include=producto` `breaker.fire(producto_id)` → `{ data: orden, producto: {...}, _bff: "aggregated" }` degraded `warning` si `CIRCUIT_OPEN`.
 - `services/gateway/src/index.js:1` `svc-gateway` `PORT 3004` `GET /bff/ordenes/:id` agrega `orden` + `producto` via dos `CircuitBreaker` (ordenes/productos URLs) + `GET /bff/health`.
-- `nginx/nginx.conf:102` `location ~ ^/api/v1/bff/ordenes/(?<bffid>...)` `proxy_pass http://127.0.0.1:3004/bff/ordenes/$bffid` (ECS) + `nginx.local.conf:88` `gateway:3004` (compose `profile gateway`). `docker-compose.yml:149` `gateway` `profiles ["gateway"]` no arranca por defecto FinOps; `frontend/app.js:84` `bff(id)` llama ambos endpoints.
+- `nginx/nginx.conf:102` `location ~ ^/api/v1/bff/ordenes/(?<bffid>...)` `proxy_pass http://127.0.0.1:3004/bff/ordenes/$bffid` (ECS) + `nginx.local.conf:88` `gateway:3004` (Compose). El gateway arranca con el stack base porque NGINX necesita resolver ese upstream al cargar configuración; `frontend/app.js:84` `bff(id)` llama ambos endpoints.
 
 Spec replica sin reescribir `ordenes` bounded context.
 
@@ -172,7 +172,7 @@ CI no corre chaos (long), pero `make verify` + `docker compose --wait` + `e2e` c
 
 **Fase 6.3 + 8.7.**
 
-- `pipeline.yml:216` `gitleaks detect` full history + `trivy fs HIGH,CRITICAL SARIF` + `trivy image` post-build soft-fail; `pipeline.yml:180` `npm audit --omit=dev --audit-level=high` + `snyk` soft-fail; `terraform/.tflint.hcl:1` + `checkov` SARIF `0 high` (política `GetParameter + kms:Decrypt` `secrets/main.tf:73`).
+- `pipeline.yml:216` `gitleaks detect` full history + `trivy fs/image HIGH,CRITICAL SARIF` como gates bloqueantes; `pipeline.yml:180` `npm audit --omit=dev --audit-level=high`; `terraform/.tflint.hcl:1` + `checkov` SARIF `0 high` (política `GetParameter + kms:Decrypt` `secrets/main.tf:73`).
 - `packages/shared/src/db.js:18` RDS TLS `rejectUnauthorized:true` prod con CA bundle `certs/rds-ca-bundle.pem` `/app/certs` (`migrations/run.js:15`).
 - `nginx.conf:36` `add_header X-Content-Type-Options/CSP/HSTS/Permissions-Policy` + `server_tokens off` + `limit_req_zone 30r/s burst 60 429` (`nginx.conf:14`) + `packages/shared/src/middleware.js:20` `helmet/cors/compression/rate-limit 100/min` `trust proxy 1`.
 
@@ -193,7 +193,7 @@ CI no corre chaos (long), pero `make verify` + `docker compose --wait` + `e2e` c
 **Demo `docs/demo.md:1` + `frontend/` + `README.md:145` Monitoring + `README.md:160` Scale + `README.md:190` Demo.**
 
 - `git clone && docker compose up --build -d --wait` <180s + `docker compose --profile frontend up` → `http://localhost:8080` dashboard Fase 11.2 muestra health pool, `X-Cache HIT`, BFF `include=producto`.
-- Badges `README.md:3` coverage 80% + OpenAPI 3.1 + trivy + prettier + release + demo + pipeline verde `pipeline.yml:38` `<6m` concurrency+cache.
+- Badges `README.md:3` cobertura con objetivo de ratchet 80% + OpenAPI 3.1 + trivy + prettier + release + demo + pipeline verde `pipeline.yml:38` `<6m` concurrency+cache.
 - `docs/screenshots/demo.gif` 800x450 <5MB + `aws_console.png`/`cloudwatch.png` (dashboard 6 widgets) + `openapi.yaml` contract.
 - `ADR-001/002/004/005/006` trazabilidad FinOps/Monorepo/OpenAPI/Scale.
 - `CHANGELOG.md:1` semver + tags `v1.11.0` + `make verify` verde en máquina limpia (Fase 11.8).
@@ -213,4 +213,3 @@ Métrica Fase 11: `make verify` verde + `README` 2m convence senior.
 - **Secret rotation lambda** `docs/security/rotation.md:40` manual `ssm put-parameter` + `taint random_password`; prod lambda rotation.
 
 Documentado en `PLAN_ELEVACION_11_FASES.md:10` gaps P1/P2 y `docs/interview.md` para entrevista honesta.
-

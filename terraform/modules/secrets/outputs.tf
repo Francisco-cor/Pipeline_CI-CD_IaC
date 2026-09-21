@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------
 
 output "task_execution_role_arn" {
-  description = "ARN of the ECS Task Execution IAM role. ECS uses this to pull images from ECR, write logs to CloudWatch, and fetch secrets from Secrets Manager at container startup."
+  description = "ARN of the ECS Task Execution IAM role. ECS uses this to pull images from ECR, write logs to CloudWatch, and fetch SSM parameters at container startup."
   value       = aws_iam_role.ecs_task_execution.arn
 }
 
@@ -16,5 +16,4 @@ output "db_secret_arn" {
   description = "ARN of the SSM Parameter that holds the full PostgreSQL DATABASE_URL connection string."
   value       = aws_ssm_parameter.db_url.arn
 }
-
 

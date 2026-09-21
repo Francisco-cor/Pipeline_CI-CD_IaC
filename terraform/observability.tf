@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # observability.tf — CloudWatch log-based alerting
 #
-# All three services log in structured JSON to stdout (src/logger.js).
+# All backend services log in structured JSON to stdout (src/logger.js).
 # CloudWatch Logs captures this output automatically in Fargate.
 # A metric filter counts lines where $.level = "error", and an alarm fires
 # when the error count exceeds the threshold in a 5-minute window.

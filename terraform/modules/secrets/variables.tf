@@ -38,3 +38,8 @@ variable "rds_password" {
   sensitive   = true
 }
 
+variable "sqs_queue_arn" {
+  description = "Optional SQS queue ARN used by the application task role. Empty when SQS is disabled."
+  type        = string
+  default     = ""
+}

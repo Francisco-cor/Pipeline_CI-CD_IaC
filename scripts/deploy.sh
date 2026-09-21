@@ -5,13 +5,14 @@
 #
 # Usage:
 #   IMAGE_TAG=sha-abc1234 ./scripts/deploy.sh
+#   DEPLOY_SERVICES=productos,nginx IMAGE_TAG=sha-abc1234 ./scripts/deploy.sh
 #   ./scripts/deploy.sh           # derives tag from current HEAD
 #
 # What it does:
 #   1. Acquires deploy lock (flock) to prevent concurrent deploys
-#   2. Verifies IMAGE_TAG images exist in ECR (digest check)
+#   2. Verifies selected IMAGE_TAG images exist in ECR and records digests
 #   3. Fetches current task definition
-#   4. Replaces image tags with IMAGE_TAG (python JSON swap)
+#   4. Replaces only selected services with immutable image digests
 #   5. Registers new task definition revision and verifies digest
 #   6. Updates ECS service and waits for services-stable (10m)
 #   7. Detects circuit-breaker rollback via service events
@@ -44,7 +45,8 @@ CLUSTER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-cluster"
 SERVICE_NAME="${PROJECT_NAME}-${ENVIRONMENT}-service"
 TASK_FAMILY="${PROJECT_NAME}-${ENVIRONMENT}-app"
 
-SERVICES=("productos" "ordenes" "stock" "nginx" "migrations")
+SERVICES=("productos" "ordenes" "stock" "nginx" "migrations" "gateway")
+DEPLOY_SERVICES="${DEPLOY_SERVICES:-productos,ordenes,stock,nginx,migrations,gateway}"
 
 LOCK_FILE="/tmp/erp-deploy-${ENVIRONMENT}.lock"
 LOCK_FD=200
@@ -82,7 +84,21 @@ trap release_lock EXIT
 acquire_lock
 
 echo "=== Deploy: ${PROJECT_NAME}-${ENVIRONMENT} @ ${IMAGE_TAG} ==="
+echo "Services: ${DEPLOY_SERVICES}"
 echo ""
+
+# Validate the comma-separated service selection before it reaches Python/AWS.
+IFS=',' read -r -a DEPLOY_SERVICE_LIST <<< "${DEPLOY_SERVICES}"
+if [ "${#DEPLOY_SERVICE_LIST[@]}" -eq 0 ]; then
+  echo "ERROR: DEPLOY_SERVICES must contain at least one service." >&2
+  exit 1
+fi
+for svc in "${DEPLOY_SERVICE_LIST[@]}"; do
+  case " ${SERVICES[*]} " in
+    *" ${svc} "*) ;;
+    *) echo "ERROR: unknown service in DEPLOY_SERVICES: ${svc}" >&2; exit 1 ;;
+  esac
+done
 
 # Validate tag format
 if [[ ! "${IMAGE_TAG}" =~ ^sha-[0-9a-f]{4,40}$ ]] && [[ ! "${IMAGE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "${IMAGE_TAG}" != "latest" ]]; then
@@ -98,26 +114,33 @@ echo "Service:  ${SERVICE_NAME}"
 echo "Lock:     ${LOCK_FILE}"
 echo ""
 
-# --- Verify images exist in ECR (Fase 7.7) ---
-echo "[0/3] Verifying images exist in ECR @ ${IMAGE_TAG}..."
+# --- Verify selected images exist in ECR (Fase 7.7) ---
+echo "[0/3] Verifying selected images exist in ECR @ ${IMAGE_TAG}..."
 MISSING=0
-for svc in "${SERVICES[@]}"; do
+IMAGE_DIGESTS_LINES=""
+for svc in "${DEPLOY_SERVICE_LIST[@]}"; do
   repo="${PROJECT_NAME}-${svc}"
   echo "  Checking ${repo}:${IMAGE_TAG}..."
   if ! aws ecr describe-images --repository-name "${repo}" --image-ids imageTag="${IMAGE_TAG}" --region "${AWS_REGION}" >/dev/null 2>&1; then
     echo "    MISSING: ${repo}:${IMAGE_TAG} not found in ECR — did build.sh push?" >&2
     MISSING=$((MISSING+1))
   else
-    # Fetch digest for audit
+    # Fetch the immutable digest used in the new task definition.
     DIGEST=$(aws ecr describe-images --repository-name "${repo}" --image-ids imageTag="${IMAGE_TAG}" --region "${AWS_REGION}" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || echo "unknown")
-    echo "    OK: ${repo}:${IMAGE_TAG} digest ${DIGEST}"
+    if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+      echo "    MISSING: ${repo}:${IMAGE_TAG} returned an invalid digest (${DIGEST})." >&2
+      MISSING=$((MISSING+1))
+    else
+      IMAGE_DIGESTS_LINES+="${svc}=${DIGEST}"$'\n'
+      echo "    OK: ${repo}:${IMAGE_TAG} digest ${DIGEST}"
+    fi
   fi
 done
 if [ "${MISSING}" -gt 0 ]; then
-  echo "ERROR: ${MISSING} image(s) missing — aborting deploy. Build first: bash scripts/build.sh" >&2
+  echo "ERROR: ${MISSING} selected image(s) missing — aborting deploy. Build first: bash scripts/build.sh" >&2
   exit 1
 fi
-echo "  All ${#SERVICES[@]} images verified."
+echo "  All ${#DEPLOY_SERVICE_LIST[@]} selected images verified."
 echo ""
 
 # --- Step 1: Register new task definition revision ---
@@ -129,28 +152,51 @@ CURRENT_TASK_DEF=$(aws ecs describe-task-definition \
   --output json \
   --region "${AWS_REGION}")
 
-# Swap image tags using Python3 — reliable JSON handling without jq quoting issues
-NEW_TASK_DEF=$(echo "${CURRENT_TASK_DEF}" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-ecr_base = '${ECR_BASE}'
-project = '${PROJECT_NAME}'
-tag = '${IMAGE_TAG}'
+# Swap only selected services to immutable digests using Python's JSON parser.
+# Unchanged services keep the image reference from the current task, making
+# paths-filter builds safe while preserving rollback semantics.
+NEW_TASK_DEF=$(CURRENT_TASK_DEF="${CURRENT_TASK_DEF}" \
+  ECR_BASE="${ECR_BASE}" PROJECT_NAME="${PROJECT_NAME}" \
+  DEPLOY_SERVICES="${DEPLOY_SERVICES}" IMAGE_DIGESTS_LINES="${IMAGE_DIGESTS_LINES}" \
+  python3 -c "
+import json
+import os
+
+data = json.loads(os.environ['CURRENT_TASK_DEF'])
+selected = set(filter(None, os.environ['DEPLOY_SERVICES'].split(',')))
+digests = dict(
+    line.split('=', 1)
+    for line in os.environ['IMAGE_DIGESTS_LINES'].splitlines()
+    if line.strip()
+)
 container_to_service = {
-  'svc-productos': 'productos',
-  'svc-ordenes':   'ordenes',
-  'svc-stock':     'stock',
-  'nginx':         'nginx',
-  'migrations':    'migrations',
+    'svc-productos': 'productos',
+    'svc-ordenes': 'ordenes',
+    'svc-stock': 'stock',
+    'svc-gateway': 'gateway',
+    'nginx': 'nginx',
+    'migrations': 'migrations',
 }
+seen = set()
 for container in data['containerDefinitions']:
-  name = container['name']
-  if name in container_to_service:
-    service = container_to_service[name]
-    container['image'] = f'{ecr_base}/{project}-{service}:{tag}'
-# Remove read-only fields that cannot be passed to register-task-definition
-for field in ['taskDefinitionArn', 'revision', 'status', 'requiresAttributes', 'compatibilities', 'registeredAt', 'registeredBy']:
-  data.pop(field, None)
+    service = container_to_service.get(container['name'])
+    if service in selected:
+        if service not in digests:
+            raise SystemExit(f'missing digest for selected service: {service}')
+        container['image'] = (
+            f\"{os.environ['ECR_BASE']}/{os.environ['PROJECT_NAME']}-{service}\"
+            f\"@{digests[service]}\"
+        )
+        seen.add(service)
+missing = selected - seen
+if missing:
+    raise SystemExit('selected services absent from current task definition: ' + ','.join(sorted(missing)))
+
+for field in [
+    'taskDefinitionArn', 'revision', 'status', 'requiresAttributes',
+    'compatibilities', 'registeredAt', 'registeredBy',
+]:
+    data.pop(field, None)
 print(json.dumps(data))
 ")
 
@@ -162,16 +208,30 @@ NEW_REVISION=$(aws ecs register-task-definition \
 
 echo "  Registered: ${NEW_REVISION}"
 
-# Verify new revision images are exactly IMAGE_TAG (digest check)
+# Verify new revision images are exactly the selected immutable digests.
 echo "  Verifying new revision images..."
-VERIFY_DEF=$(aws ecs describe-task-definition --task-definition "${NEW_REVISION}" --region "${AWS_REGION}" --query 'taskDefinition.containerDefinitions[].image' --output text)
+VERIFY_DEF=$(aws ecs describe-task-definition --task-definition "${NEW_REVISION}" --region "${AWS_REGION}" --query 'taskDefinition.containerDefinitions[].{name:name,image:image}' --output json)
 echo "  Images in new revision:"
-echo "${VERIFY_DEF}" | tr '\t' '\n' | sed 's/^/    - /'
-if ! echo "${VERIFY_DEF}" | grep -q "${IMAGE_TAG}"; then
-  echo "ERROR: new revision does not contain ${IMAGE_TAG} — registration mismatch" >&2
-  exit 1
-fi
-echo "  Digest verification: images contain ${IMAGE_TAG}."
+echo "${VERIFY_DEF}" | python3 -c 'import json,sys; [print(f"    - {x[\"name\"]}: {x[\"image\"]}") for x in json.load(sys.stdin)]'
+VERIFY_DEF_JSON="${VERIFY_DEF}" ECR_BASE="${ECR_BASE}" PROJECT_NAME="${PROJECT_NAME}" \
+  DEPLOY_SERVICES="${DEPLOY_SERVICES}" IMAGE_DIGESTS_LINES="${IMAGE_DIGESTS_LINES}" \
+  python3 -c "
+import json
+import os
+
+images = {item['name']: item['image'] for item in json.loads(os.environ['VERIFY_DEF_JSON'])}
+service_to_container = {
+    'productos': 'svc-productos', 'ordenes': 'svc-ordenes', 'stock': 'svc-stock',
+    'gateway': 'svc-gateway', 'nginx': 'nginx', 'migrations': 'migrations',
+}
+digests = dict(line.split('=', 1) for line in os.environ['IMAGE_DIGESTS_LINES'].splitlines() if line.strip())
+for service in filter(None, os.environ['DEPLOY_SERVICES'].split(',')):
+    container = service_to_container[service]
+    expected = f\"{os.environ['ECR_BASE']}/{os.environ['PROJECT_NAME']}-{service}@{digests[service]}\"
+    if images.get(container) != expected:
+        raise SystemExit(f\"image verification failed for {service}: expected {expected}, got {images.get(container)}\")
+"
+echo "  Digest verification: selected images are immutable and match ECR."
 echo ""
 
 # --- Step 2: Update service and wait for stable deployment ---
@@ -202,7 +262,8 @@ WAIT_CODE=$?
 set -e
 
 if [ "${WAIT_CODE}" -ne 0 ]; then
-  echo "WARN: wait services-stable timed out or failed (code ${WAIT_CODE}) — checking service events..." >&2
+  echo "ERROR: wait services-stable timed out or failed (code ${WAIT_CODE}); deployment is not considered successful." >&2
+  exit 1
 else
   echo "  services-stable: OK"
 fi

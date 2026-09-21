@@ -11,7 +11,7 @@
 ## Deploy via CI/CD (recomendado)
 
 1. Push a `main` → pipeline `build` (`docker/build-push-action@v6` `cache-from/to: type=gha`) solo si `dorny/paths-filter` detecta cambios (`pipeline.yml:58-107`)
-2. `trivy-image` escanea `CRITICAL,HIGH` (soft-fail)
+2. `trivy-image` escanea `CRITICAL,HIGH` y bloquea vulnerabilidades conocidas
 3. `deploy` job ejecuta:
 
    ```bash
@@ -39,16 +39,16 @@ IMAGE_TAG=sha-$GIT_SHA bash scripts/deploy.sh
 
 ## Qué verifica `deploy.sh:1-200` (Fase 7.7)
 
-| Paso            | Check                                                                                                                   | Fail → acción                                                |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Lock            | `flock /tmp/erp-deploy-<env>.lock` o `mkdir`                                                                            | `ERROR another deploy holds lock` → espera o `rm` lock stale |
-| Tag format      | regex `sha-[0-9a-f]{4,40}`                                                                                              | WARN pero continúa                                           |
-| ECR verify      | `aws ecr describe-images --image-ids imageTag=$TAG` por cada `productos/ordenes/stock/nginx/migrations` + `imageDigest` | `MISSING` → aborta, `build.sh` primero                       |
-| Register        | `describe-task-definition` → python swap `image` → `register-task-definition`                                           | si JSON inválido → `ROLLBACK`                                |
-| Digest verify   | `describe-task-definition $NEW_REVISION` → grep `$TAG`                                                                  | mismatch → aborta                                            |
-| Update          | `update-service --task-definition $NEW_REVISION`                                                                        | si `AccessDenied` → revisa `cicd.tf:118` `ECSServiceDeploy`  |
-| Wait            | `aws ecs wait services-stable` (10m timeout)                                                                            | timeout → `WARN` + sigue a verificar                         |
-| Rollback detect | `describe-services` `taskDefinition` vs `NEW_REVISION` + `events` grep `rollback\|circuit breaker`                      | mismatch → `ERROR rollback likely` + exit 1                  |
+| Paso            | Check                                                                                                                                               | Fail → acción                                                |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Lock            | `flock /tmp/erp-deploy-<env>.lock` o `mkdir`                                                                                                        | `ERROR another deploy holds lock` → espera o `rm` lock stale |
+| Tag format      | regex `sha-[0-9a-f]{4,40}`                                                                                                                          | WARN pero continúa                                           |
+| ECR verify      | `aws ecr describe-images --image-ids imageTag=$TAG` por cada servicio cambiado (`productos/ordenes/stock/gateway/nginx/migrations`) + `imageDigest` | `MISSING` → aborta, `build.sh` primero                       |
+| Register        | `describe-task-definition` → python swap `image` → `register-task-definition`                                                                       | si JSON inválido → `ROLLBACK`                                |
+| Digest verify   | `describe-task-definition $NEW_REVISION` → grep `$TAG`                                                                                              | mismatch → aborta                                            |
+| Update          | `update-service --task-definition $NEW_REVISION`                                                                                                    | si `AccessDenied` → revisa `cicd.tf:118` `ECSServiceDeploy`  |
+| Wait            | `aws ecs wait services-stable` (10m timeout)                                                                                                        | timeout → `WARN` + sigue a verificar                         |
+| Rollback detect | `describe-services` `taskDefinition` vs `NEW_REVISION` + `events` grep `rollback\|circuit breaker`                                                  | mismatch → `ERROR rollback likely` + exit 1                  |
 
 ## Rollback automático
 

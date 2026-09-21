@@ -23,8 +23,7 @@ output "rds_username" {
 }
 
 output "rds_password" {
-  description = "Auto-generated master password for the RDS PostgreSQL instance. Marked sensitive so Terraform redacts it in plan/apply output. The secrets module stores this in Secrets Manager."
+  description = "Auto-generated master password for the RDS PostgreSQL instance. Marked sensitive so Terraform redacts it in plan/apply output. The secrets module stores it in SSM Parameter Store."
   value       = random_password.db_password.result
   sensitive   = true
 }
-

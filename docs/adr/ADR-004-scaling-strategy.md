@@ -86,15 +86,15 @@ Prod toggle: `enable_sqs=true` → app debe tener `sqs:SendMessage` en task role
 
 ### Coste total Fase 10 (cuando toggles true, prod)
 
-| Toggle | Recurso | $/mes |
-|--------|---------|------|
-| `enable_alb=true` | ALB | ~$16 |
-| `enable_nat_gateway=true` | NAT GW | ~$32 |
-| `enable_redis=true` | ElastiCache t3.micro | ~$12 |
-| `enable_autoscaling=true` | policies | ~$0.40 + compute |
-| `enable_sqs=true` | SQS 1M msgs | $0.40 |
-| Dashboard Fase 9 |  | $3 |
-| **Total prod full** |  | ~$64 vs **dev $0 FinOps** todos false |
+| Toggle                    | Recurso              | $/mes                                 |
+| ------------------------- | -------------------- | ------------------------------------- |
+| `enable_alb=true`         | ALB                  | ~$16                                  |
+| `enable_nat_gateway=true` | NAT GW               | ~$32                                  |
+| `enable_redis=true`       | ElastiCache t3.micro | ~$12                                  |
+| `enable_autoscaling=true` | policies             | ~$0.40 + compute                      |
+| `enable_sqs=true`         | SQS 1M msgs          | $0.40                                 |
+| Dashboard Fase 9          |                      | $3                                    |
+| **Total prod full**       |                      | ~$64 vs **dev $0 FinOps** todos false |
 
 ## Consequences
 

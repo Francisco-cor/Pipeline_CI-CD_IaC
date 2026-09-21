@@ -16,11 +16,11 @@ This project deploys a Node.js + PostgreSQL application on AWS ECS Fargate with 
 
 A standard production AWS architecture for ECS Fargate typically includes:
 
-| Component | Monthly Cost |
-|-----------|-------------|
-| NAT Gateway (1 AZ) | ~$32/month ($0.045/hr + $0.045/GB data) |
+| Component                 | Monthly Cost                             |
+| ------------------------- | ---------------------------------------- |
+| NAT Gateway (1 AZ)        | ~$32/month ($0.045/hr + $0.045/GB data)  |
 | Application Load Balancer | ~$16/month ($0.008/LCU-hr + $0.0008/LCU) |
-| **Total overhead** | **~$48/month** |
+| **Total overhead**        | **~$48/month**                           |
 
 For a portfolio project generating zero revenue, $48/month in fixed networking overhead — before any compute or storage costs — is prohibitive. On a free-tier account this cost begins immediately and continues indefinitely.
 
@@ -119,13 +119,13 @@ This is an explicit **FinOps decision** for a portfolio/development environment:
 
 VPC Interface Endpoints allow private subnet resources to reach AWS services without a NAT Gateway or public internet.
 
-| Endpoint | Cost |
-|----------|------|
-| `com.amazonaws.us-east-2.ecr.api` | $7.30/month |
-| `com.amazonaws.us-east-2.ecr.dkr` | $7.30/month |
-| `com.amazonaws.us-east-2.secretsmanager` | $7.30/month |
-| `com.amazonaws.us-east-2.logs` | $7.30/month |
-| **Total** | **$29.20/month** |
+| Endpoint                                 | Cost             |
+| ---------------------------------------- | ---------------- |
+| `com.amazonaws.us-east-2.ecr.api`        | $7.30/month      |
+| `com.amazonaws.us-east-2.ecr.dkr`        | $7.30/month      |
+| `com.amazonaws.us-east-2.secretsmanager` | $7.30/month      |
+| `com.amazonaws.us-east-2.logs`           | $7.30/month      |
+| **Total**                                | **$29.20/month** |
 
 This would keep ECS tasks in private subnets (better security) but costs nearly as much as a NAT Gateway and is more complex to configure. **Rejected on cost grounds.**
 

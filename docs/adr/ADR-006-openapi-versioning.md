@@ -25,7 +25,7 @@ Scaffold tenía **API sin contrato** (Fase 3 gap P0): `services/{productos,orden
 - `packages/shared/src/middleware.js:48` `securityMiddleware()` → `helmet({contentSecurityPolicy:false}) + cors({origin: CORS_ORIGIN||*}) + compression() + requestIdMiddleware (uuid + AsyncLocalStorage) + createRateLimiter 100/min + trust proxy` (`services/*/src/index.js:24` Fase 3.5+8.3) + NGINX `limit_req_zone 30r/s burst 60 429` (`nginx.conf:14` Fase 8.4) defensa en profundidad.
 - `GET /productos/:id` `PUT /:id` `DELETE /:id` + `GET /ordenes/:id?include=producto` BFF aggregation (Fase 10.5/11.1) siguen schema `Producto` + invalidan `cache productos:list:*` → `X-Cache HIT/MISS`.
 
-Testing contract: `packages/test-helpers` + `jest` `coverageThreshold 80%` (`services/productos/package.json:44` Fase 4) + `supertest` contra OpenAPI via `openapi-validator` (Fase 4.6 futuro) + `scripts/e2e.sh:51` `?limit=2` + `X-Total-Count`/`Link` asserts.
+Testing contract: `packages/test-helpers` + `jest` coverage por servicio con objetivo de ratchet a 80% (`services/productos/package.json:44`) + `supertest` contra OpenAPI via `openapi-validator` (Fase 4.6 futuro) + `scripts/e2e.sh:51` `?limit=2` + `X-Total-Count`/`Link` asserts.
 
 ## Consequences
 

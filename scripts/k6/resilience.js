@@ -22,7 +22,11 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:80';
 
 export function setup() {
   // crea producto base para ordenes válidas
-  const payload = JSON.stringify({ nombre: `resilience-setup-${Date.now()}`, precio: 10, stock: 100 });
+  const payload = JSON.stringify({
+    nombre: `resilience-setup-${Date.now()}`,
+    precio: 10,
+    stock: 100,
+  });
   const res = http.post(`${BASE_URL}/api/v1/productos`, payload, {
     headers: { 'Content-Type': 'application/json' },
   });
@@ -45,14 +49,22 @@ export default function (data) {
   // 20% orden válida, 10% orden inválida (producto inexistente) → 404 sin cascade
   const rnd = Math.random();
   if (rnd < 0.2) {
-    const ok = http.post(`${BASE_URL}/api/v1/ordenes`, JSON.stringify({ producto_id: productId, cantidad: 1, total: 10 }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const ok = http.post(
+      `${BASE_URL}/api/v1/ordenes`,
+      JSON.stringify({ producto_id: productId, cantidad: 1, total: 10 }),
+      {
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
     check(ok, { 'POST orden 201': r => r.status === 201 });
   } else if (rnd < 0.3) {
-    const bad = http.post(`${BASE_URL}/api/v1/ordenes`, JSON.stringify({ producto_id: 999999, cantidad: 1, total: 10 }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const bad = http.post(
+      `${BASE_URL}/api/v1/ordenes`,
+      JSON.stringify({ producto_id: 999999, cantidad: 1, total: 10 }),
+      {
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
     check(bad, { 'POST orden 404 fallback': r => r.status === 404 });
   }
 
@@ -60,9 +72,13 @@ export default function (data) {
   if (Math.random() < 0.1) {
     const tipo = Math.random() < 0.5 ? 'entrada' : 'salida';
     const cantidad = tipo === 'salida' ? 1 : 2;
-    const s = http.post(`${BASE_URL}/api/v1/stock`, JSON.stringify({ producto_id: productId, cantidad, tipo }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const s = http.post(
+      `${BASE_URL}/api/v1/stock`,
+      JSON.stringify({ producto_id: productId, cantidad, tipo }),
+      {
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
     check(s, { 'POST stock 201 or 409': r => r.status === 201 || r.status === 409 });
   }
 

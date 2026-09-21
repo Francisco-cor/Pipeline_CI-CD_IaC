@@ -4,22 +4,22 @@ updates:
   # npm — Node services + migrations
   - package-ecosystem: npm
     directory: /services/productos
-    schedule: { interval: weekly, day: monday, time: "06:00" }
+    schedule: { interval: weekly, day: monday, time: '06:00' }
     labels: [deps, npm]
     open-pull-requests-limit: 5
   - package-ecosystem: npm
     directory: /services/ordenes
-    schedule: { interval: weekly, day: monday, time: "06:00" }
+    schedule: { interval: weekly, day: monday, time: '06:00' }
     labels: [deps, npm]
     open-pull-requests-limit: 5
   - package-ecosystem: npm
     directory: /services/stock
-    schedule: { interval: weekly, day: monday, time: "06:00" }
+    schedule: { interval: weekly, day: monday, time: '06:00' }
     labels: [deps, npm]
     open-pull-requests-limit: 5
   - package-ecosystem: npm
     directory: /migrations
-    schedule: { interval: weekly, day: monday, time: "06:00" }
+    schedule: { interval: weekly, day: monday, time: '06:00' }
     labels: [deps, npm]
     open-pull-requests-limit: 3
 

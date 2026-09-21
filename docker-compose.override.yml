@@ -55,6 +55,21 @@ services:
       NODE_ENV: development
       CHOKIDAR_USEPOLLING: 'true'
 
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    command: npm run dev
+    volumes:
+      - ./services/gateway/src:/app/services/gateway/src:ro
+      - ./services/gateway/package.json:/app/services/gateway/package.json:ro
+      - ./packages/shared/src:/app/packages/shared/src:ro
+      - ./packages/shared/package.json:/app/packages/shared/package.json:ro
+      - gateway_node_modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: 'true'
+
   # Postgres: expone datos persistentes pero permite reset rápido con `make nuke`
   postgres:
     volumes:
@@ -64,4 +79,5 @@ volumes:
   productos_node_modules:
   ordenes_node_modules:
   stock_node_modules:
+  gateway_node_modules:
   pgdata:

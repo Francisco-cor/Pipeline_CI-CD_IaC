@@ -7,7 +7,7 @@
 #
 # What it does:
 #   1. Authenticates with ECR
-#   2. Builds and pushes :sha-<git_sha> + :latest tags for all 5 images
+#   2. Builds and pushes :sha-<git_sha> + :latest tags for all 6 images
 #
 # Called by:
 #   - GitHub Actions "build" job (GIT_SHA set by the runner)
@@ -26,7 +26,7 @@ PROJECT_NAME="${PROJECT_NAME:-erp-pipeline}"
 GIT_SHA="${1:-$(git rev-parse --short HEAD)}"
 IMAGE_TAG="sha-${GIT_SHA}"
 
-SERVICES=("productos" "ordenes" "stock" "nginx" "migrations")
+SERVICES=("productos" "ordenes" "stock" "gateway" "nginx" "migrations")
 
 # Fase 2: servicios usan root context para incluir packages/shared (monorepo).
 # nginx/migrations mantienen contexto propio.
@@ -34,6 +34,7 @@ declare -A BUILD_CONTEXTS=(
   [productos]="."
   [ordenes]="."
   [stock]="."
+  [gateway]="."
   [nginx]="nginx"
   [migrations]="migrations"
 )
@@ -42,6 +43,7 @@ declare -A DOCKERFILES=(
   [productos]="services/productos/Dockerfile"
   [ordenes]="services/ordenes/Dockerfile"
   [stock]="services/stock/Dockerfile"
+  [gateway]="services/gateway/Dockerfile"
   [nginx]="nginx/Dockerfile"
   [migrations]="migrations/Dockerfile"
 )

@@ -47,19 +47,14 @@ data "aws_iam_policy_document" "github_actions_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Scope to this specific GitHub repository — Fase 8.5 least-privilege prod
-    # dev/staging: allow push to main + pull_request (plan-only, read-only via TF)
-    # prod: only push to main (strict) — pull_request cannot assume prod role (plan prod se hace local)
+    # Scope to this specific GitHub repository and protected main branch.
+    # Pull requests, including those opened from forks, never receive AWS
+    # credentials. Terraform PR checks therefore run without backend access.
     # var.github_repo format: "owner/repo-name"
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values = var.environment == "prod" ? [
-        "repo:${var.github_repo}:ref:refs/heads/main",
-        ] : [
-        "repo:${var.github_repo}:ref:refs/heads/main",
-        "repo:${var.github_repo}:pull_request",
-      ]
+      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
     }
   }
 }

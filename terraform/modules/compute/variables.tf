@@ -43,6 +43,12 @@ variable "sg_app_id" {
   type        = string
 }
 
+variable "assign_public_ip" {
+  description = "Whether ECS tasks receive public IPs. False when tasks run in private subnets behind NAT/ALB."
+  type        = bool
+  default     = true
+}
+
 variable "vpc_id" {
   description = "VPC ID para Cloud Map service discovery (Fase 7.6). Cuando enable_service_discovery=true crea private DNS namespace erp.local."
   type        = string

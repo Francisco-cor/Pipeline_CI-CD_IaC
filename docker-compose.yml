@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# docker-compose.yml — stack local completo (postgres + migrations + 3 servicios + nginx)
+# docker-compose.yml — stack local completo (postgres + migrations + 4 servicios + nginx)
 # Uso: cp .env.example .env && docker compose up --build
 # Requiere: Docker + compose v2
 # Nota: nginx.local.conf se monta para resolver por nombre de servicio (vs 127.0.0.1 en ECS)
@@ -77,7 +77,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://localhost:3001/health || exit 1']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3001/health || exit 1']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -108,7 +108,7 @@ services:
       migrations:
         condition: service_completed_successfully
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://localhost:3002/health || exit 1']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3002/health || exit 1']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -139,7 +139,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://localhost:3003/health || exit 1']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3003/health || exit 1']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -163,21 +163,21 @@ services:
       stock:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://localhost/health || exit 1']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1/health || exit 1']
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 10s
     restart: unless-stopped
 
-  # Fase 11.1 — BFF gateway (optional) — docker compose --profile gateway up
-  # No arranca por defecto (FinOps). Activa con: docker compose --profile gateway up --build
+  # Fase 11.1 — BFF gateway. NGINX local references this upstream at config
+  # parse time, so it must be part of the default stack instead of an optional
+  # profile; the frontend remains optional below.
   gateway:
     build:
       context: .
       dockerfile: services/gateway/Dockerfile
     container_name: erp-gateway
-    profiles: ["gateway"]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-erpadmin}:${POSTGRES_PASSWORD:-test_password}@postgres:5432/${POSTGRES_DB:-erpdb}
       PORT: ${PORT_GATEWAY:-3004}
@@ -198,7 +198,7 @@ services:
       ordenes:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://localhost:3004/health || exit 1']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3004/health || exit 1']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -211,7 +211,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: erp-frontend
-    profiles: ["frontend"]
+    profiles: ['frontend']
     ports:
       - '${FRONTEND_PORT:-8080}:8080'
     depends_on:

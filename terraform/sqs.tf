@@ -29,27 +29,6 @@ resource "aws_sqs_queue" "ordenes" {
   }
 }
 
-# Policy para que tasks puedan Send/Receive/Delete (Fase 10.6 — opcional prod)
-# Se adjunta via tasK_role (ver modules/secrets). Aquí dejamos arn para data.
-
-resource "aws_sqs_queue_policy" "ordenes" {
-  count     = var.enable_sqs ? 1 : 0
-  queue_url = aws_sqs_queue.ordenes[0].id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = ["sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
-        Resource  = aws_sqs_queue.ordenes[0].arn
-        Condition = {
-          ArnEquals = {
-            "aws:SourceArn" = "arn:aws:ecs:${var.aws_region}:*:service/${var.project_name}-${var.environment}-service"
-          }
-        }
-      }
-    ]
-  })
-}
+# SQS access is granted to the ECS task role in modules/secrets. An identity
+# policy is the correct control for same-account calls made with task-role
+# credentials; a queue policy with Principal="*" would widen the trust surface.

@@ -5,7 +5,7 @@
 #
 #   networking  →  VPC, subnets, IGW, route tables, security groups
 #   database    →  RDS PostgreSQL (+ random password)
-#   secrets     →  Secrets Manager secrets + IAM roles for ECS
+#   secrets     →  SSM Parameter Store + IAM roles for ECS
 #   compute     →  ECR repository + ECS cluster + placeholder task definition
 #
 # Data flow between modules:
@@ -61,6 +61,28 @@ locals {
   redis_url                     = var.enable_redis && local.redis_endpoint != "" ? "redis://${local.redis_endpoint}:6379" : ""
 }
 
+# Fail early on combinations that would create a public ALB while placing the
+# ECS tasks in subnets without a supported private egress path.
+resource "terraform_data" "configuration_guard" {
+  input = {
+    environment = var.environment
+    alb         = var.enable_alb
+    nat         = var.enable_nat_gateway
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !var.enable_alb || var.enable_nat_gateway
+      error_message = "enable_alb=true requires enable_nat_gateway=true so ECS tasks run in private subnets behind the ALB."
+    }
+
+    precondition {
+      condition     = var.autoscaling_min_capacity >= 1 && var.autoscaling_max_capacity >= var.autoscaling_min_capacity
+      error_message = "autoscaling capacities must satisfy 1 <= min_capacity <= max_capacity."
+    }
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Module: networking (Fase 7.3 private subnets + NAT toggle)
 # Creates the VPC, subnets, IGW, route tables, and security groups.
@@ -102,7 +124,7 @@ module "database" {
 
 # -----------------------------------------------------------------------------
 # Module: secrets
-# Creates Secrets Manager secrets and the IAM roles used by ECS.
+# Creates SSM parameters and the IAM roles used by ECS.
 # Depends on database for actual endpoint/credential values to store.
 # -----------------------------------------------------------------------------
 module "secrets" {
@@ -112,16 +134,17 @@ module "secrets" {
   environment  = var.environment
 
   # Database connection details — used to build the full connection strings
-  # stored in Secrets Manager so the app only needs one secret ARN.
-  rds_endpoint = module.database.rds_endpoint
-  rds_port     = module.database.rds_port
-  rds_db_name  = module.database.rds_db_name
-  rds_username = module.database.rds_username
-  rds_password = module.database.rds_password
+  # stored in SSM so the app only needs one parameter ARN.
+  rds_endpoint  = module.database.rds_endpoint
+  rds_port      = module.database.rds_port
+  rds_db_name   = module.database.rds_db_name
+  rds_username  = module.database.rds_username
+  rds_password  = module.database.rds_password
+  sqs_queue_arn = local.sqs_queue_arn
 }
 
 # -----------------------------------------------------------------------------
-# Module: compute (Fase 7.4 taskdef template + 7.5 ECR 5 + 7.6 service discovery)
+# Module: compute (Fase 7.4 taskdef template + ECR x6 + 7.6 service discovery)
 # Creates the ECR repository, ECS cluster, and a placeholder task definition.
 # Week 2 will replace the placeholder with the real application image via CI/CD.
 # Fase 10: ALB + autoscaling + SQS/Redis toggles
@@ -145,9 +168,10 @@ module "compute" {
   # Fase 7.3: cuando enable_nat_gateway=true, ECS puede correr en private subnets;
   # por defecto sigue en public (FinOps). Fase 7.6: service discovery necesita vpc_id.
   # Fase 10: cuando enable_alb=true, ECS usa private subnets si existen (fallback public)
-  subnet_ids = var.enable_nat_gateway ? module.networking.private_subnet_ids : module.networking.public_subnet_ids
-  sg_app_id  = module.networking.sg_app_id
-  vpc_id     = module.networking.vpc_id
+  subnet_ids       = var.enable_nat_gateway ? module.networking.private_subnet_ids : module.networking.public_subnet_ids
+  sg_app_id        = module.networking.sg_app_id
+  vpc_id           = module.networking.vpc_id
+  assign_public_ip = !var.enable_nat_gateway
 
   enable_service_discovery  = var.enable_service_discovery
   ecr_image_retention_count = var.ecr_image_retention_count

@@ -9,6 +9,10 @@ set -euo pipefail
 BASE_URL="${1:-http://localhost:80}"
 echo "=== e2e smoke — $BASE_URL ==="
 
+# Los smoke tests pueden reintentarse contra la misma base persistente. Usa un
+# nombre único para no depender de limpiar datos entre ejecuciones.
+E2E_PRODUCT_NAME="e2e-widget-${E2E_RUN_ID:-$(date +%s)-$$}"
+
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
 
@@ -51,7 +55,7 @@ check "/api/v1/productos/health/live" 200
 echo "--- productos ---"
 check "/api/v1/productos?limit=2&page=1" 200
 # Create
-CREATE_RESP=$(curl -s -X POST "$BASE_URL/api/v1/productos" -H "Content-Type: application/json" -d '{"nombre":"e2e-widget","precio":12.5,"stock":3}')
+CREATE_RESP=$(curl -s -X POST "$BASE_URL/api/v1/productos" -H "Content-Type: application/json" -d "{\"nombre\":\"$E2E_PRODUCT_NAME\",\"precio\":12.5,\"stock\":3}")
 echo "$CREATE_RESP" | jq -e '.data.id' >/dev/null || fail "create producto"
 ID=$(echo "$CREATE_RESP" | jq -r '.data.id')
 pass "POST producto id=$ID"

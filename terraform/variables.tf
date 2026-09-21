@@ -35,7 +35,7 @@ variable "db_name" {
 }
 
 variable "db_username" {
-  description = "Master username for the RDS PostgreSQL instance. The password is generated automatically by the database module (random_password) and stored in Secrets Manager — it is never set as a plain Terraform variable."
+  description = "Master username for the RDS PostgreSQL instance. The password is generated automatically by the database module (random_password) and stored in SSM Parameter Store — it is never set as a plain Terraform variable."
   type        = string
   default     = "erpadmin"
 }

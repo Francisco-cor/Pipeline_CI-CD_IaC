@@ -9,6 +9,7 @@
 #   3. productos  — Node.js service on port 3001
 #   4. ordenes    — Node.js service on port 3002
 #   5. stock      — Node.js service on port 3003
+#   6. gateway    — BFF aggregation service on port 3004
 #
 # Task sizing: 512 CPU (0.5 vCPU) / 1024 MB (1 GB)
 #   Within Fargate free tier: 750 vCPU-hours/month
@@ -20,12 +21,12 @@
 
 # --- ECR Repositories (one per service) ---
 
-# ECR repos: one per service + nginx + migrations
+# ECR repos: one per service + gateway + nginx + migrations
 # Each service gets its own repository for independent image lifecycle management.
 # ECR free tier: 500 MB/month. Our images are ~150 MB total so we stay in free tier.
 
 locals {
-  services = ["productos", "ordenes", "stock", "nginx", "migrations"]
+  services = ["productos", "ordenes", "stock", "gateway", "nginx", "migrations"]
 }
 
 resource "aws_ecr_repository" "services" {
@@ -184,7 +185,7 @@ resource "aws_ecs_task_definition" "app" {
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
 
-  # 0.5 vCPU / 1 GB — fits all 5 containers within free tier
+  # 0.5 vCPU / 1 GB — fits the six sidecar containers within the initial budget
   # Fase 10: si enable_alb, podría necesitar más memoria para sidecars adicionales
   cpu    = 512
   memory = 1024
@@ -203,6 +204,7 @@ resource "aws_ecs_task_definition" "app" {
     redis_url      = var.redis_url
     sqs_queue_url  = var.sqs_queue_url
     productos_url  = var.enable_service_discovery ? "http://productos.erp.local:3001" : "http://127.0.0.1:3001"
+    ordenes_url    = var.enable_service_discovery ? "http://ordenes.erp.local:3002" : "http://127.0.0.1:3002"
     cache_ttl      = "30"
     enable_tracing = "false"
   })
@@ -249,7 +251,7 @@ resource "aws_ecs_service" "app" {
     subnets         = var.subnet_ids
     security_groups = [var.sg_app_id]
     # FinOps: true para public subnets. Prod con NAT+private documentado en ADR-004 (false allí).
-    assign_public_ip = true
+    assign_public_ip = var.assign_public_ip
   }
 
   # Fase 10.4 — ALB attachment (opcional). NGINX sigue siendo target (port 80).

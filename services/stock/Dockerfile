@@ -31,7 +31,7 @@ ENV NODE_ENV=production
 ENV SERVICE_NAME=svc-stock
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:3003/health || exit 1
+  CMD wget -qO- http://127.0.0.1:3003/health || exit 1
 
 EXPOSE 3003
 CMD ["node", "src/index.js"]

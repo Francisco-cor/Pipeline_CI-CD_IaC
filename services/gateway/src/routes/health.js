@@ -14,7 +14,7 @@ router.get('/', async (req, res) => {
     await pool.query('SELECT 1');
     res.json({
       status: 'ok',
-      service: process.env.SERVICE_NAME || 'svc-productos',
+      service: process.env.SERVICE_NAME || 'svc-gateway',
       db: 'connected',
       latency_ms: Date.now() - start,
       uptime_s: Math.floor(process.uptime()),
@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
     logger.error('Health check failed — DB unreachable', { error: err.message, requestId: req.id });
     res.status(500).json({
       status: 'error',
-      service: process.env.SERVICE_NAME || 'svc-productos',
+      service: process.env.SERVICE_NAME || 'svc-gateway',
       db: 'disconnected',
     });
   }
@@ -33,7 +33,7 @@ router.get('/', async (req, res) => {
 router.get('/live', (req, res) => {
   res.json({
     status: 'ok',
-    service: process.env.SERVICE_NAME || 'svc-productos',
+    service: process.env.SERVICE_NAME || 'svc-gateway',
     uptime_s: Math.floor(process.uptime()),
   });
 });
@@ -45,7 +45,7 @@ router.get('/ready', async (req, res) => {
     await pool.query('SELECT 1');
     res.json({
       status: 'ok',
-      service: process.env.SERVICE_NAME || 'svc-productos',
+      service: process.env.SERVICE_NAME || 'svc-gateway',
       db: 'connected',
       latency_ms: Date.now() - start,
       uptime_s: Math.floor(process.uptime()),
@@ -54,7 +54,7 @@ router.get('/ready', async (req, res) => {
     logger.error('Health ready failed', { error: err.message, requestId: req.id });
     res.status(500).json({
       status: 'error',
-      service: process.env.SERVICE_NAME || 'svc-productos',
+      service: process.env.SERVICE_NAME || 'svc-gateway',
       db: 'disconnected',
     });
   }
@@ -80,7 +80,7 @@ router.get('/details', async (req, res) => {
   };
   res.json({
     status: dbStatus === 'connected' ? 'ok' : 'error',
-    service: process.env.SERVICE_NAME || 'svc-productos',
+    service: process.env.SERVICE_NAME || 'svc-gateway',
     db: dbStatus,
     latency_ms: latencyMs,
     uptime_s: Math.floor(process.uptime()),

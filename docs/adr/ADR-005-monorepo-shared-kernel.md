@@ -39,7 +39,7 @@ Build: `npm ci` en root instala `node_modules/@erp/shared` symlink + `services/*
 
 ### Negative
 
-- **Workspace coupling:** cambio breaking en `shared` rompe 3 servicios si no se versiona; mitigado con `npm run test --workspaces` + `coverageThreshold 80%` (`services/productos/package.json:44`).
+- **Workspace coupling:** cambio breaking en `shared` rompe 3 servicios si no se versiona; mitigado con `npm run test --workspaces` + artefactos de cobertura. El `coverageThreshold 80%` sigue siendo objetivo de ratchet cuando las rutas faltantes tengan pruebas (`services/productos/package.json:44`).
 - **Docker layer cache:** `COPY packages/shared/src` en `services/*/Dockerfile:11` invalida cache si shared cambia — aceptable, `buildx gha cache ~60% hit` (Fase 6.2).
 - **No publish:** `@erp/shared` no se publica a npm (file: link) — si se necesita consumo externo, migrar a `npm publish` o `turborepo`.
 

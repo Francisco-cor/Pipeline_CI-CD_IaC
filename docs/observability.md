@@ -4,14 +4,14 @@
 
 ## Stack
 
-| Capa | Qué | Dónde |
-|---|---|---|
-| **Logs** | JSON `logger.js:14` `requestId` via `AsyncLocalStorage` + `requestIdMiddleware` + `X-Request-Id` header | CloudWatch `/ecs/erp-pipeline-{env}` retention 7d dev / 90d prod (`compute/main.tf:110`) |
-| **Métricas** | `prom-client` `http_request_duration_ms` (histogram) + `http_requests_total` + `http_active_requests` + EMF `HttpLatency/HttpRequestCount` → CloudWatch Metrics (`metrics.js:20`) | `GET /metrics` per-service + EMF via logs |
-| **Dashboard** | 6 widgets CPU/Mem/Error/Latency p95/5xx/DB conns + log table top errors (`dashboard.tf:10`) | CloudWatch `erp-pipeline-{env}-overview` |
-| **Alarmas** | `ServiceErrorCount>10/5m`, `p95>500ms`, `5xx>10/5m`, `DBConnections>80` → SNS `alert_email` (`observability.tf:49-110`) | SNS + `aws logs tail` |
-| **Tracing** | OTel SDK `NodeSDK` + `auto-instrumentations` + `OTLPTraceExporter` (`tracing.js:20`) → X-Ray/OTel collector si `OTEL_ENABLED=true` | `http://localhost:4318/v1/traces` |
-| **Health** | `/health` (readiness DB), `/health/live` (liveness), `/health/ready`, `/health/details` pool stats (`health.js:60`) | ECS + k8s probes |
+| Capa          | Qué                                                                                                                                                                               | Dónde                                                                                    |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Logs**      | JSON `logger.js:14` `requestId` via `AsyncLocalStorage` + `requestIdMiddleware` + `X-Request-Id` header                                                                           | CloudWatch `/ecs/erp-pipeline-{env}` retention 7d dev / 90d prod (`compute/main.tf:110`) |
+| **Métricas**  | `prom-client` `http_request_duration_ms` (histogram) + `http_requests_total` + `http_active_requests` + EMF `HttpLatency/HttpRequestCount` → CloudWatch Metrics (`metrics.js:20`) | `GET /metrics` per-service + EMF via logs                                                |
+| **Dashboard** | 6 widgets CPU/Mem/Error/Latency p95/5xx/DB conns + log table top errors (`dashboard.tf:10`)                                                                                       | CloudWatch `erp-pipeline-{env}-overview`                                                 |
+| **Alarmas**   | `ServiceErrorCount>10/5m`, `p95>500ms`, `5xx>10/5m`, `DBConnections>80` → SNS `alert_email` (`observability.tf:49-110`)                                                           | SNS + `aws logs tail`                                                                    |
+| **Tracing**   | OTel SDK `NodeSDK` + `auto-instrumentations` + `OTLPTraceExporter` (`tracing.js:20`) → X-Ray/OTel collector si `OTEL_ENABLED=true`                                                | `http://localhost:4318/v1/traces`                                                        |
+| **Health**    | `/health` (readiness DB), `/health/live` (liveness), `/health/ready`, `/health/details` pool stats (`health.js:60`)                                                               | ECS + k8s probes                                                                         |
 
 ---
 
@@ -63,13 +63,13 @@ curl http://localhost:80/metrics | head         # alias productos
 
 **Métricas clave:**
 
-| Métrica | Tipo | Labels | Origen |
-|---|---|---|---|
-| `http_request_duration_ms_bucket` | Histogram | `method,route,status` | `metrics.js:20` |
-| `http_requests_total` | Counter | `method,route,status` | `metrics.js:30` |
-| `http_active_requests` | Gauge | — | `metrics.js:36` |
-| `erp_http_latency` | EMF `HttpLatency` | `ServiceName,Route` | EMF log `_aws` |
-| `erp_http_5xx` | Metric filter `Http5xxCount` | — | `observability.tf:80` |
+| Métrica                           | Tipo                         | Labels                | Origen                |
+| --------------------------------- | ---------------------------- | --------------------- | --------------------- |
+| `http_request_duration_ms_bucket` | Histogram                    | `method,route,status` | `metrics.js:20`       |
+| `http_requests_total`             | Counter                      | `method,route,status` | `metrics.js:30`       |
+| `http_active_requests`            | Gauge                        | —                     | `metrics.js:36`       |
+| `erp_http_latency`                | EMF `HttpLatency`            | `ServiceName,Route`   | EMF log `_aws`        |
+| `erp_http_5xx`                    | Metric filter `Http5xxCount` | —                     | `observability.tf:80` |
 
 **Prometheus scrape (opcional local):**
 
@@ -78,7 +78,7 @@ curl http://localhost:80/metrics | head         # alias productos
 scrape_configs:
   - job_name: 'erp'
     static_configs:
-      - targets: ['localhost:3001','localhost:3002','localhost:3003']
+      - targets: ['localhost:3001', 'localhost:3002', 'localhost:3003']
     metrics_path: /metrics
 ```
 
@@ -87,7 +87,21 @@ scrape_configs:
 Cada `http_request` loggea además un objeto EMF con `_aws` (`metrics.js:50`):
 
 ```json
-{"_aws":{"Timestamp":1234567890123,"CloudWatchMetrics":[{"Namespace":"erp-pipeline/dev","Dimensions":[["ServiceName","Route"]],"Metrics":[{"Name":"HttpLatency","Unit":"Milliseconds"}]}]},"ServiceName":"svc-productos","Route":"/api/v1/productos","HttpLatency":42}
+{
+  "_aws": {
+    "Timestamp": 1234567890123,
+    "CloudWatchMetrics": [
+      {
+        "Namespace": "erp-pipeline/dev",
+        "Dimensions": [["ServiceName", "Route"]],
+        "Metrics": [{ "Name": "HttpLatency", "Unit": "Milliseconds" }]
+      }
+    ]
+  },
+  "ServiceName": "svc-productos",
+  "Route": "/api/v1/productos",
+  "HttpLatency": 42
+}
 ```
 
 CloudWatch extrae `HttpLatency` automáticamente sin agente. Ver en **Metrics → erp-pipeline/dev**.
@@ -120,12 +134,12 @@ aws cloudwatch get-dashboard --dashboard-name erp-pipeline-dev-overview --region
 
 ## Alarmas — `terraform/observability.tf:49-150`
 
-| Alarma | Métrica | Umbral | Acción |
-|---|---|---|---|
-| `high-error-rate` | `ServiceErrorCount` `Sum 5m` | `>10` | SNS `alerts` |
-| `high-latency-p95` | `HttpLatency` `p95 5m` | `>500ms` | SNS |
-| `high-5xx-rate` | `Http5xxCount` `Sum 5m` | `>10` | SNS |
-| `db-connections-high` | `AWS/RDS DatabaseConnections` `Maximum 5m` | `>80` | SNS |
+| Alarma                | Métrica                                    | Umbral   | Acción       |
+| --------------------- | ------------------------------------------ | -------- | ------------ |
+| `high-error-rate`     | `ServiceErrorCount` `Sum 5m`               | `>10`    | SNS `alerts` |
+| `high-latency-p95`    | `HttpLatency` `p95 5m`                     | `>500ms` | SNS          |
+| `high-5xx-rate`       | `Http5xxCount` `Sum 5m`                    | `>10`    | SNS          |
+| `db-connections-high` | `AWS/RDS DatabaseConnections` `Maximum 5m` | `>80`    | SNS          |
 
 Todas: `treat_missing_data=notBreaching` + `ok_actions` para cerrar.
 
@@ -177,13 +191,13 @@ curl http://localhost:80/api/v1/productos
 
 ## Health — `services/*/src/routes/health.js:60` (Fase 9.7)
 
-| Endpoint | Qué | DB |
-|---|---|---|
-| `GET /health` | readiness `SELECT 1` + `latency_ms` + `uptime_s` | sí |
-| `GET /health/live` | liveness `uptime_s` | no |
-| `GET /health/ready` | alias readiness | sí |
+| Endpoint              | Qué                                                                                                                          | DB                                               |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `GET /health`         | readiness `SELECT 1` + `latency_ms` + `uptime_s`                                                                             | sí                                               |
+| `GET /health/live`    | liveness `uptime_s`                                                                                                          | no                                               |
+| `GET /health/ready`   | alias readiness                                                                                                              | sí                                               |
 | `GET /health/details` | `status, service, db, latency_ms, uptime_s, memory (rss/heap), pool {totalCount,idleCount,waitingCount}, version, requestId` | sí (pero responde con `pool` incluso si DB down) |
-| `GET /metrics` | Prometheus `http_*` | no |
+| `GET /metrics`        | Prometheus `http_*`                                                                                                          | no                                               |
 
 **Uso ECS:**
 

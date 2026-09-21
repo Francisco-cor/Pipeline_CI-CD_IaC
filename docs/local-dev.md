@@ -10,7 +10,7 @@
 
 ## Estructura compose
 
-- `docker-compose.yml:8-146` — base prod-like: `postgres:15-alpine` (health `pg_isready`), `migrations` (init, `service_completed_successfully`), `productos:3001`, `ordenes:3002`, `stock:3003`, `nginx:80` (usa `nginx.local.conf:28-30` con DNS `productos:3001` vs ECS `127.0.0.1`).
+- `docker-compose.yml` — base prod-like: `postgres:15-alpine` (health `pg_isready`), `migrations` (init, `service_completed_successfully`), `productos:3001`, `ordenes:3002`, `stock:3003`, `gateway:3004`, `nginx:80` (usa `nginx.local.conf` con DNS de Compose vs ECS `127.0.0.1`).
 - `docker-compose.override.yml:12-62` — dev: monta `services/*/src` + `packages/shared/src` en `/app/services/*/src` y `/app/packages/shared/src`, cambia `command: npm run dev` (nodemon), preserva `node_modules` en volumen anónimo.
 
 ## Flujo

@@ -26,10 +26,18 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "testMatch": ["**/src/__tests__/**/*.test.js"],
-    "collectCoverageFrom": ["src/**/*.js", "!src/__tests__/**"],
+    "testMatch": [
+      "**/src/__tests__/**/*.test.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/__tests__/**"
+    ],
     "coverageDirectory": "coverage",
-    "coverageReporters": ["text", "lcov"],
+    "coverageReporters": [
+      "text",
+      "lcov"
+    ],
     "testTimeout": 10000
   }
 }

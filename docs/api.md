@@ -11,14 +11,14 @@
 
 ## Health
 
-| Endpoint | Descripción |
-|---|---|
-| `GET /health` | NGINX liveness |
-| `GET /api/productos/health` | readiness (DB `SELECT 1`) — ECS usa este |
-| `GET /api/v1/productos/health` | alias versioned |
-| `GET /health/live` | liveness sin DB (`uptime_s`) — Fase 3.8 |
-| `GET /health/ready` | readiness (DB) — usar para k8s/ECS `healthCheck` futuro |
-| `GET /api/productos/health/live` y `/ready` | via NGINX |
+| Endpoint                                    | Descripción                                             |
+| ------------------------------------------- | ------------------------------------------------------- |
+| `GET /health`                               | NGINX liveness                                          |
+| `GET /api/productos/health`                 | readiness (DB `SELECT 1`) — ECS usa este                |
+| `GET /api/v1/productos/health`              | alias versioned                                         |
+| `GET /health/live`                          | liveness sin DB (`uptime_s`) — Fase 3.8                 |
+| `GET /health/ready`                         | readiness (DB) — usar para k8s/ECS `healthCheck` futuro |
+| `GET /api/productos/health/live` y `/ready` | via NGINX                                               |
 
 ## Paginación (Fase 3.7)
 

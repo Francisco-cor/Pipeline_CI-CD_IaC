@@ -19,7 +19,7 @@ docker compose --profile frontend up --build
 # http://localhost:8080
 
 # Con gateway BFF profile
-docker compose --profile gateway --profile frontend up --build
+docker compose --profile frontend up --build
 ```
 
 ## Env

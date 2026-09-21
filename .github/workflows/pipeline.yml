@@ -1,11 +1,11 @@
 # =============================================================================
 # CI/CD Pipeline: lint → test → build → deploy
 # Fase 6: concurrency, cache, sec (gitleaks/trivy), tf tflint/checkov, paths-filter
-# Fase 8: audit (npm audit + snyk) + sec headers + rate-limit
+# Fase 8: audit (npm audit) + sec headers + rate-limit
 #
 # Triggers:
 #   - push to main         → full pipeline (lint + test + build + deploy)
-#   - pull_request to main → lint + test + terraform plan (no build, no deploy)
+#   - pull_request to main → lint + test + static Terraform checks (no build, no deploy)
 #
 # Auth: GitHub Actions assumes an AWS IAM role via OIDC.
 # Zero long-lived credentials stored in GitHub secrets.
@@ -20,7 +20,7 @@
 #   6.1 concurrency group ${workflow}-${ref} cancel-in-progress
 #   6.2 docker layer cache buildx gha (cache-from/to type=gha)
 #   6.3 gitleaks + trivy fs (sarif) + trivy image (post-build)
-#   6.4 terraform fmt/validate/tflint/checkov + plan en PR
+#   6.4 terraform fmt/validate/tflint/checkov en PR (sin credenciales AWS)
 #   6.5 eslint --cache + prettier check (format job)
 #   6.6 coverage artifact per service + job summaries
 #   6.7 paths-filter → build only changed services
@@ -63,6 +63,7 @@ jobs:
       productos: ${{ steps.filter.outputs.productos }}
       ordenes: ${{ steps.filter.outputs.ordenes }}
       stock: ${{ steps.filter.outputs.stock }}
+      gateway: ${{ steps.filter.outputs.gateway }}
       nginx: ${{ steps.filter.outputs.nginx }}
       migrations: ${{ steps.filter.outputs.migrations }}
       terraform: ${{ steps.filter.outputs.terraform }}
@@ -92,6 +93,12 @@ jobs:
               - 'package.json'
               - 'package-lock.json'
               - 'services/stock/Dockerfile'
+            gateway:
+              - 'services/gateway/**'
+              - 'packages/shared/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'services/gateway/Dockerfile'
             nginx:
               - 'nginx/**'
             migrations:
@@ -108,7 +115,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Job 1: Lint (Fase 6.5 eslint --cache + cache + summary)
-  # Matrix: runs ESLint on all three services in parallel.
+  # Matrix: runs ESLint on all backend services in parallel.
   # npm cache keyed on each service's package-lock.json.
   # eslint cache via --cache flag + actions/cache for .eslintcache
   # ---------------------------------------------------------------------------
@@ -117,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [productos, ordenes, stock]
+        service: [productos, ordenes, stock, gateway]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -176,14 +183,14 @@ jobs:
           echo "- prettier --check passed" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
-  # Job 1c: npm audit (Fase 8.7) — fail on HIGH, Snyk non-blocking
+  # Job 1c: npm audit (Fase 8.7) — fail on HIGH in every backend workspace
   # ---------------------------------------------------------------------------
   audit:
     name: Audit (${{ matrix.service }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [productos, ordenes, stock]
+        service: [productos, ordenes, stock, gateway]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -198,25 +205,15 @@ jobs:
         run: npm ci --silent && npm audit --audit-level=high --omit=dev
         working-directory: services/${{ matrix.service }}
 
-      - name: Snyk test (high, soft-fail)
-        uses: snyk/actions/node@master
-        continue-on-error: true
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --severity-threshold=high --file=services/${{ matrix.service }}/package.json --json-file-output=snyk-${{ matrix.service }}.json
-
       - name: Summary
         if: always()
         run: |
           echo "## Audit ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
           echo "- npm audit --audit-level=high passed" >> $GITHUB_STEP_SUMMARY
-          echo "- snyk soft-fail (requires SNYK_TOKEN)" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
   # Job 1d: Gitleaks (Fase 6.3)
-  # Escanea historial por secretos hardcodeados. Non-blocking al inicio,
-  # luego se puede poner exit-code 1 para blocking.
+  # Escanea el historial completo por secretos hardcodeados y bloquea el pipeline.
   # ---------------------------------------------------------------------------
   gitleaks:
     name: Gitleaks
@@ -259,6 +256,7 @@ jobs:
           output: trivy-fs.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          exit-code: '1'
 
       - name: Upload Trivy FS SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -284,7 +282,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [productos, ordenes, stock]
+        service: [productos, ordenes, stock, gateway]
       fail-fast: false
 
     services:
@@ -378,18 +376,15 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Job 3: Terraform (PRs only) — Fase 6.4
-  # fmt -check + init + validate + tflint + checkov + plan
-  # Muestra plan en PR comment y en job summary (Fase 6.8)
-  # Needs OIDC trust para pull_request (cicd.tf)
+  # fmt -check + init + validate + tflint + checkov. This job deliberately
+  # does not assume AWS: untrusted PR code must not receive cloud credentials.
   # ---------------------------------------------------------------------------
   terraform:
-    name: Terraform checks + plan
+    name: Terraform checks
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
-      pull-requests: write
       security-events: write
     steps:
       - uses: actions/checkout@v4
@@ -400,7 +395,7 @@ jobs:
 
       - uses: terraform-linters/setup-tflint@v4
         with:
-          tflint_version: latest
+          tflint_version: v0.53.0
 
       - name: Terraform fmt check
         run: terraform fmt -check -recursive
@@ -423,13 +418,13 @@ jobs:
         working-directory: terraform
 
       - name: Checkov (sarif)
-        uses: bridgecrewio/checkov-action@master
+        uses: bridgecrewio/checkov-action@v12
         with:
           directory: terraform
           framework: terraform
           output_format: sarif
           output_file_path: checkov.sarif
-          soft_fail: true
+          soft_fail: false
           quiet: true
 
       - name: Upload Checkov SARIF
@@ -438,64 +433,11 @@ jobs:
         with:
           sarif_file: checkov.sarif
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform init (with backend — Fase 7.1)
-        run: terraform init -input=false -reconfigure -backend-config="environments/backend-${{ env.ENVIRONMENT }}.hcl"
-        working-directory: terraform
-
-      - name: Terraform plan (Fase 7.1 var-file per env)
-        id: plan
-        run: |
-          set +e
-          terraform plan -no-color -input=false -var-file="environments/${{ env.ENVIRONMENT }}.tfvars" -out=tfplan > plan.txt 2>&1
-          CODE=$?
-          cat plan.txt
-          echo "exit_code=$CODE" >> $GITHUB_OUTPUT
-          # Exporta primeras 65000 chars para comment (límite GitHub)
-          PLAN_OUT=$(cat plan.txt | head -c 60000)
-          echo "plan<<EOF" >> $GITHUB_OUTPUT
-          echo "$PLAN_OUT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          exit $CODE
-        working-directory: terraform
-        env:
-          TF_VAR_github_repo: ${{ github.repository }}
-          TF_VAR_environment: ${{ env.ENVIRONMENT }}
-          TF_VAR_project_name: ${{ env.PROJECT_NAME }}
-          TF_VAR_aws_region: ${{ env.AWS_REGION }}
-        continue-on-error: true
-
-      - name: Terraform plan summary
+      - name: Terraform checks summary
         if: always()
         run: |
-          echo "## Terraform Plan — ${{ env.ENVIRONMENT }}" >> $GITHUB_STEP_SUMMARY
-          echo '```terraform' >> $GITHUB_STEP_SUMMARY
-          cat terraform/plan.txt | head -n 300 >> $GITHUB_STEP_SUMMARY || echo "no plan output" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "- fmt/validate/tflint/checkov passed" >> $GITHUB_STEP_SUMMARY
-
-      - name: Comment PR with plan
-        uses: marocchino/sticky-pull-request-comment@v2
-        if: github.event_name == 'pull_request'
-        with:
-          header: terraform-plan
-          message: |
-            ### Terraform Plan — `${{ env.ENVIRONMENT }}`
-
-            <details><summary>Show plan (truncated)</summary>
-
-            ```terraform
-            ${{ steps.plan.outputs.plan }}
-            ```
-
-            </details>
-
-            *fmt/validate/tflint/checkov passed — reviewed via OIDC `cincd.tf:17-65`*
+          echo "## Terraform static checks" >> $GITHUB_STEP_SUMMARY
+          echo "- fmt/validate/tflint/checkov passed without AWS credentials" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
   # Job 4: Build (Fase 6.2 buildx gha cache + 6.7 paths-filter per-service)
@@ -505,7 +447,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     name: Build & Push to ECR
-    needs: [test, changes]
+    needs: [test, e2e, audit, gitleaks, trivy-fs, changes]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.changes.outputs.any_service == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -513,6 +455,7 @@ jobs:
       contents: read
     outputs:
       image_tag: ${{ steps.tag.outputs.value }}
+      deploy_services: ${{ steps.deploy_services.outputs.value }}
     steps:
       - uses: actions/checkout@v4
 
@@ -531,6 +474,23 @@ jobs:
       - name: Compute image tag
         id: tag
         run: echo "value=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve changed services
+        id: deploy_services
+        shell: bash
+        run: |
+          services=()
+          [[ "${{ needs.changes.outputs.productos }}" == "true" ]] && services+=(productos)
+          [[ "${{ needs.changes.outputs.ordenes }}" == "true" ]] && services+=(ordenes)
+          [[ "${{ needs.changes.outputs.stock }}" == "true" ]] && services+=(stock)
+          [[ "${{ needs.changes.outputs.gateway }}" == "true" ]] && services+=(gateway)
+          [[ "${{ needs.changes.outputs.nginx }}" == "true" ]] && services+=(nginx)
+          [[ "${{ needs.changes.outputs.migrations }}" == "true" ]] && services+=(migrations)
+          if [ "${#services[@]}" -eq 0 ]; then
+            echo "No deployable service changes detected." >&2
+            exit 1
+          fi
+          (IFS=,; echo "value=${services[*]}") >> "$GITHUB_OUTPUT"
 
       - name: ECR base
         id: ecr
@@ -598,6 +558,26 @@ jobs:
         if: needs.changes.outputs.stock != 'true'
         run: echo "skip stock — no changes" >> $GITHUB_STEP_SUMMARY
 
+      # --- gateway ---
+      - name: Build & push gateway
+        if: needs.changes.outputs.gateway == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/gateway/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.base }}/${{ env.PROJECT_NAME }}-gateway:${{ steps.tag.outputs.value }}
+            ${{ steps.ecr.outputs.base }}/${{ env.PROJECT_NAME }}-gateway:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            GIT_SHA=${{ steps.tag.outputs.value }}
+
+      - name: Build gateway skipped
+        if: needs.changes.outputs.gateway != 'true'
+        run: echo "skip gateway — no changes" >> $GITHUB_STEP_SUMMARY
+
       # --- nginx ---
       - name: Build & push nginx
         if: needs.changes.outputs.nginx == 'true'
@@ -645,19 +625,19 @@ jobs:
           echo "- productos: ${{ needs.changes.outputs.productos }}" >> $GITHUB_STEP_SUMMARY
           echo "- ordenes: ${{ needs.changes.outputs.ordenes }}" >> $GITHUB_STEP_SUMMARY
           echo "- stock: ${{ needs.changes.outputs.stock }}" >> $GITHUB_STEP_SUMMARY
+          echo "- gateway: ${{ needs.changes.outputs.gateway }}" >> $GITHUB_STEP_SUMMARY
           echo "- nginx: ${{ needs.changes.outputs.nginx }}" >> $GITHUB_STEP_SUMMARY
           echo "- migrations: ${{ needs.changes.outputs.migrations }}" >> $GITHUB_STEP_SUMMARY
           echo "- cache: type=gha (buildx)" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
   # Job 4b: Trivy image scan (Fase 6.3)
-  # Escanea imágenes recién pusheadas; non-blocking (soft_fail) al inicio.
-  # Cuando madure, cambiar exit-code a 1 para blocking.
+  # Escanea imágenes recién pusheadas y bloquea HIGH/CRITICAL conocidos.
   # ---------------------------------------------------------------------------
   trivy-image:
     name: Trivy image (${{ matrix.service }})
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [build, changes]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.changes.outputs.any_service == 'true'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -665,7 +645,7 @@ jobs:
       security-events: write
     strategy:
       matrix:
-        service: [productos, ordenes, stock, nginx, migrations]
+        service: [productos, ordenes, stock, gateway, nginx, migrations]
       fail-fast: false
     env:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -686,6 +666,13 @@ jobs:
           echo "base=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> "$GITHUB_OUTPUT"
 
       - name: Run Trivy image scan
+        if: |
+          (matrix.service == 'productos' && needs.changes.outputs.productos == 'true') ||
+          (matrix.service == 'ordenes' && needs.changes.outputs.ordenes == 'true') ||
+          (matrix.service == 'stock' && needs.changes.outputs.stock == 'true') ||
+          (matrix.service == 'gateway' && needs.changes.outputs.gateway == 'true') ||
+          (matrix.service == 'nginx' && needs.changes.outputs.nginx == 'true') ||
+          (matrix.service == 'migrations' && needs.changes.outputs.migrations == 'true')
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: ${{ steps.ecr.outputs.base }}/${{ env.PROJECT_NAME }}-${{ matrix.service }}:${{ env.IMAGE_TAG }}
@@ -693,11 +680,19 @@ jobs:
           output: trivy-image-${{ matrix.service }}.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-        continue-on-error: true
+          exit-code: '1'
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: |
+          always() && (
+            (matrix.service == 'productos' && needs.changes.outputs.productos == 'true') ||
+            (matrix.service == 'ordenes' && needs.changes.outputs.ordenes == 'true') ||
+            (matrix.service == 'stock' && needs.changes.outputs.stock == 'true') ||
+            (matrix.service == 'gateway' && needs.changes.outputs.gateway == 'true') ||
+            (matrix.service == 'nginx' && needs.changes.outputs.nginx == 'true') ||
+            (matrix.service == 'migrations' && needs.changes.outputs.migrations == 'true')
+          )
         with:
           sarif_file: trivy-image-${{ matrix.service }}.sarif
           category: trivy-image-${{ matrix.service }}
@@ -706,7 +701,7 @@ jobs:
         if: always()
         run: |
           echo "## Trivy image ${{ matrix.service }}:${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
-          echo "- scanned for CRITICAL/HIGH (soft-fail)" >> $GITHUB_STEP_SUMMARY
+          echo "- scanned for CRITICAL/HIGH (blocking gate)" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
   # Job 5: Deploy
@@ -716,7 +711,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy to ECS
-    needs: build
+    needs: [build, trivy-image]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -737,6 +732,7 @@ jobs:
           bash scripts/deploy.sh
         env:
           IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          DEPLOY_SERVICES: ${{ needs.build.outputs.deploy_services }}
           AWS_REGION: ${{ env.AWS_REGION }}
           PROJECT_NAME: ${{ env.PROJECT_NAME }}
           ENVIRONMENT: ${{ env.ENVIRONMENT }}
