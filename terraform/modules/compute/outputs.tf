@@ -37,6 +37,11 @@ output "alb_dns_name" {
   value       = var.enable_alb ? try(aws_lb.main[0].dns_name, "") : ""
 }
 
+output "alb_arn" {
+  description = "ARN of the public ALB when enable_alb=true, empty otherwise."
+  value       = var.enable_alb ? try(aws_lb.main[0].arn, "") : ""
+}
+
 output "alb_target_group_arn" {
   value = var.enable_alb ? try(aws_lb_target_group.app[0].arn, "") : ""
 }

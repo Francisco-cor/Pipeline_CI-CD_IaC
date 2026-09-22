@@ -52,7 +52,7 @@ terraform -chdir=terraform apply -var-file=environments/prod.tfvars
 
 ## 2. SSM Parameter Rotation (`/erp/*/db-url`)
 
-**Recursos:** `terraform/modules/secrets/main.tf:23` `aws_ssm_parameter.db_url` (`SecureString` + `kms:Decrypt` en `ecs_task_execution_secrets:73`)
+**Recursos:** `terraform/modules/secrets/main.tf:23` `aws_ssm_parameter.db_url` (`SecureString` + customer-managed KMS opcional en `terraform/kms.tf:1` + `kms:Decrypt` en `ecs_task_execution_secrets:73`)
 
 **Rotación manual de DATABASE_URL (sin recrear RDS):**
 
@@ -75,7 +75,7 @@ aws ssm get-parameter --name /erp/prod/db-url --with-decryption --query Paramete
 
 - Crear `aws_ssm_parameter` con `rotation` via Lambda o AWS Secrets Manager rotation (no SSM nativo).
 - Placeholder: `terraform/modules/secrets/lambda_rotation.tf` (a implementar) invocaría `lambda` cada 30d que genera nuevo `random_password` y hace `modify-db-instance`.
-- Por ahora, rotación es manual y documentada aquí; `checkov` exige `kms:Decrypt` ya añadido (`secrets/main.tf:86`).
+- Por ahora, la contraseña continúa con rotación manual; la CMK sí queda provisionada y rotada automáticamente por KMS cuando `enable_customer_managed_kms=true`.
 
 ---
 
@@ -114,6 +114,6 @@ terraform -chdir=terraform plan -var-file=environments/prod.tfvars | grep github
 ## Referencias
 
 - `terraform/cicd.tf:18-65` OIDC provider + trust `StringLike sub` least-privilege
-- `terraform/modules/secrets/main.tf:73-92` SSM `GetParameter/GetParameters` + `kms:Decrypt` con `ViaService` condition
+- `terraform/kms.tf:1` + `terraform/modules/secrets/main.tf:73-92` CMK opcional, SSM `GetParameter/GetParameters` y `kms:Decrypt` con `ViaService` condition
 - `terraform/modules/database/main.tf:27` random_password
 - `docs/adr/ADR-002-oidc-github-actions.md:1` ADR OIDC

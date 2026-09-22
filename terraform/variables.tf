@@ -136,6 +136,36 @@ variable "enable_sqs" {
   default     = false
 }
 
+variable "enable_waf" {
+  description = "Create an AWS WAFv2 web ACL for the public ALB. Keep false for the public-subnet FinOps mode."
+  type        = bool
+  default     = false
+}
+
+variable "waf_rate_limit" {
+  description = "Maximum requests per five minutes per IP enforced by the ALB WAF rate rule."
+  type        = number
+  default     = 1000
+
+  validation {
+    condition     = var.waf_rate_limit >= 100
+    error_message = "waf_rate_limit must be at least 100 requests per five minutes."
+  }
+}
+
+variable "enable_customer_managed_kms" {
+  description = "Create a rotated customer-managed KMS key for SSM SecureString and RDS Performance Insights."
+  type        = bool
+  default     = false
+}
+
+variable "customer_managed_kms_key_arn" {
+  description = "Optional existing customer-managed KMS key ARN. When set, Terraform does not create a new key."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "performance_insights_retention_days" {
   description = "RDS Performance Insights retention. 7 days is the free/default tier; long-term retention requires an explicitly configured customer-managed KMS key."
   type        = number

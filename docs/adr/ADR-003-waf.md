@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (Fase 8.8 — Fase 10 lo implementa)
+Accepted (implemented with the production ALB path)
 
 ## Date
 
@@ -10,20 +10,20 @@ Proposed (Fase 8.8 — Fase 10 lo implementa)
 
 ## Context
 
-Actualmente la arquitectura usa **NGINX sidecar** sin ALB (`ADR-001`) y `limit_req_zone 30r/s` en `nginx/nginx.conf:14` + `express-rate-limit` en `packages/shared/src/middleware.js:15` (Fase 8.3) como mitigación L7.
+La arquitectura FinOps usa **NGINX sidecar** sin ALB (`ADR-001`) y `limit_req_zone 30r/s` en `nginx/nginx.conf:14` + `express-rate-limit` en `packages/shared/src/middleware.js:15` (Fase 8.3) como mitigación L7.
 
-Cuando `enable_alb=true` (Fase 10) migrará a **private subnets + NAT + ALB + ACM**:
+Cuando `enable_alb=true`, Terraform usa **private subnets + NAT + ALB + ACM**:
 
 - ALB expone `https://api.erp.example.com` con TLS ACM
 - ECS tasks corren en `private_subnet_ids` (`terraform/modules/networking/main.tf:104`) sin IP pública
-- NAT Gateway ya existe como toggle `enable_nat_gateway` (`terraform/environments/prod.tfvars:10` `false` → `true` en Fase 10)
+- NAT Gateway ya existe como toggle `enable_nat_gateway` (`terraform/environments/prod.tfvars` lo activa en producción)
 
 En ese momento, **WAF (AWS WAFv2)** es la capa adecuada para protección L7 centralizada (vs NGINX per-task).
 
-## Decision (Proposed)
+## Decision (Accepted)
 
-- Añadir módulo `terraform/modules/waf` **condicional** `count = var.enable_alb ? 1 : 0`
-- WAF asociado a ALB (`aws_wafv2_web_acl_association`), no a CloudFront
+- El módulo `terraform/modules/waf` se crea sólo cuando `enable_waf=true`.
+- El WAF se asocia al ALB regional (`aws_wafv2_web_acl_association`), no a CloudFront.
 - Reglas iniciales (managed):
 
   | Rule                                   | Vendor | Acción |
@@ -33,7 +33,7 @@ En ese momento, **WAF (AWS WAFv2)** es la capa adecuada para protección L7 cent
   | `AWSManagedRulesSQLiRuleSet`           | AWS    | Block  |
   | `RateLimit 1000/5m per IP`             | Custom | Block  |
 
-- Toggle `var.enable_waf` bool default `false` (dev/staging) → `true` en `prod.tfvars` cuando `enable_alb=true`
+- Toggle `var.enable_waf` bool default `false` (dev/staging) → `true` en `prod.tfvars`; Terraform exige WAF cuando el entorno es `prod`.
 - Coste WAF: ~$5/mes + $1 por 1M requests — documentado en `docs/adr/ADR-003` y `terraform/environments/prod.tfvars` comentario
 
 ## Consequences
@@ -47,7 +47,7 @@ En ese momento, **WAF (AWS WAFv2)** es la capa adecuada para protección L7 cent
 
 ### Negative
 
-- WAF solo aplica cuando `enable_alb=true` (requiere `enable_nat_gateway=true` + ALB). En arquitectura actual (public subnets sin ALB) no hay recurso WAF que asociar.
+- WAF sólo aplica cuando `enable_alb=true` (requiere `enable_nat_gateway=true` + ALB). En el modo FinOps público permanece deshabilitado.
 - Coste adicional $5-10/mes en prod cuando se habilite (vs $0 actual)
 - Complejidad: reglas WAF deben testearse en `staging` primero (falsos positivos en `AWSManagedRulesCommonRuleSet` pueden bloquear payloads legítimos `POST /api/productos`)
 
@@ -74,12 +74,10 @@ En ese momento, **WAF (AWS WAFv2)** es la capa adecuada para protección L7 cent
 
 ## Migration Path (Fase 10)
 
-1. `terraform/environments/prod.tfvars`: `enable_nat_gateway=true`, `enable_alb=true`, `enable_waf=true`
-2. `terraform/modules/networking` ya crea private subnets + NAT (Fase 7.3) — `terraform apply` crea EIP+NAT
-3. Nuevo módulo `terraform/modules/alb` crea ALB + target groups + listener 443 + ACM `api.erp.example.com`
-4. Nuevo módulo `terraform/modules/waf` crea `aws_wafv2_web_acl` + `aws_wafv2_web_acl_association` al ALB ARN
-5. `terraform/modules/compute` cambia `network_configuration.subnets = private_subnet_ids` + `assign_public_ip=false`
-6. NGINX sidecar se vuelve opcional (ALB hace health checks + routing); puede mantenerse o eliminarse
+1. `terraform/environments/prod.tfvars`: `enable_nat_gateway=true`, `enable_alb=true`, `enable_waf=true` y ARN ACM aprobado.
+2. Terraform crea private subnets + NAT por AZ, ALB público y el WAF asociado; las tasks mantienen `assign_public_ip=false`.
+3. El listener HTTP redirige a HTTPS cuando el certificado ACM está configurado; NGINX sigue siendo el target interno.
+4. Validar reglas administradas y rate limit en staging antes de aplicar producción.
 
 ## References
 

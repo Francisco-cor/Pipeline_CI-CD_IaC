@@ -85,7 +85,7 @@ aws logs tail /ecs/erp-pipeline-dev --log-stream-name-prefix productos --follow
 ## Finanzas
 
 - `enable_nat_gateway=false` (default `environments/dev.tfvars:10`) mantiene $0 NAT
-- Para `prod` con `enable_nat_gateway=true` + `enable_service_discovery=true` (Fase 7.3/7.6), coste NAT ~$32/mes + EIP. Habilitar solo cuando `private subnets` + `ALB` estén listos (Fase 10).
+- Para `prod` con `enable_nat_gateway=true`, `enable_alb=true`, `enable_waf=true` y `enable_service_discovery=true`, coste NAT ~$32/mes + EIP y WAF/ALB según uso. Proporcionar el ARN ACM y validar staging antes del apply productivo.
 
 ## Referencias
 

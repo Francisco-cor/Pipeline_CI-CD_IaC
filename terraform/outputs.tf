@@ -12,8 +12,13 @@ output "vpc_id" {
 }
 
 output "public_subnet_ids" {
-  description = "List of public subnet IDs (one per AZ) used by ECS tasks and the RDS subnet group."
+  description = "List of public subnet IDs (one per AZ), used by the public ALB and by ECS/RDS only in the explicit FinOps mode."
   value       = module.networking.public_subnet_ids
+}
+
+output "private_subnet_ids" {
+  description = "List of private subnet IDs used by production ECS tasks and RDS when NAT is enabled."
+  value       = module.networking.private_subnet_ids
 }
 
 output "rds_endpoint" {
@@ -44,6 +49,16 @@ output "log_group_name" {
 output "alb_dns_name" {
   description = "Fase 10.4 — ALB DNS when enable_alb=true"
   value       = module.compute.alb_dns_name
+}
+
+output "waf_web_acl_arn" {
+  description = "WAFv2 web ACL ARN when enable_waf=true."
+  value       = var.enable_waf ? module.waf[0].web_acl_arn : ""
+}
+
+output "customer_managed_kms_key_arn" {
+  description = "Customer-managed KMS key ARN used by SSM and Performance Insights when configured."
+  value       = local.customer_managed_kms_key_id
 }
 
 output "sqs_queue_url" {

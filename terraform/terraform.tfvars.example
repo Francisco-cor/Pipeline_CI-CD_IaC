@@ -31,3 +31,8 @@ github_repo = "your-github-username/Pipeline_CI-CD_IaC"
 # Email for CloudWatch alarm notifications (optional — leave empty to skip).
 # After terraform apply, confirm the subscription from your inbox.
 alert_email = ""
+
+# Optional production security controls. Keep disabled for the dev FinOps mode.
+enable_waf                    = false
+enable_customer_managed_kms   = false
+customer_managed_kms_key_arn  = null

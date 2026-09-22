@@ -24,6 +24,7 @@ resource "aws_ssm_parameter" "db_url" {
   name        = "/${var.project_name}/${var.environment}/db-url"
   description = "Full PostgreSQL DATABASE_URL connection string for the ${var.project_name} ${var.environment} environment. Injected into ECS containers as the DATABASE_URL environment variable."
   type        = "SecureString" # Standard tier is free
+  key_id      = var.ssm_kms_key_id
   value       = "postgresql://${var.rds_username}:${var.rds_password}@${var.rds_endpoint}:${var.rds_port}/${var.rds_db_name}"
 
   tags = {
@@ -100,7 +101,7 @@ data "aws_iam_policy_document" "ecs_task_execution_secrets" {
     ]
 
     resources = [
-      "*",
+      var.ssm_kms_key_id != null && var.ssm_kms_key_id != "" ? var.ssm_kms_key_id : "*",
     ]
 
     condition {

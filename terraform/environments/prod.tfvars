@@ -21,9 +21,10 @@ enable_service_discovery   = true
 
 ecr_image_retention_count = 5
 
-# Fase 10 toggles — prod preparado para scale; mantener false hasta migración ALB privada documentada en ADR-004
+# Production edge and scaling path; provide the approved ACM ARN before apply.
 enable_alb               = true # required to reach private ECS tasks
 acm_certificate_arn      = ""   # REQUIRED: set the approved ACM certificate ARN before apply
+enable_waf               = true # managed OWASP rules + per-IP rate limiting at the ALB
 enable_autoscaling       = true # CPU 70% / memory 80%, min 2 for HA
 autoscaling_min_capacity = 2    # prod min 2 para HA cuando autoscaling true
 autoscaling_max_capacity = 4
@@ -33,3 +34,4 @@ enable_sqs               = false # toggle true → SQS ordenes + DLQ $0.40/mill�
 # Performance Insights: keep the free 7-day tier until a customer-managed KMS
 # key is provisioned; values >7 require performance_insights_kms_key_id.
 performance_insights_retention_days = 7
+enable_customer_managed_kms         = true # rotated CMK for SSM and optional long PI retention

@@ -92,12 +92,22 @@ resource "terraform_data" "configuration_guard" {
     }
 
     precondition {
+      condition     = !var.enable_waf || var.enable_alb
+      error_message = "enable_waf=true requires enable_alb=true."
+    }
+
+    precondition {
+      condition     = !local.is_prod || var.enable_waf
+      error_message = "production requires enable_waf=true when the public ALB is enabled."
+    }
+
+    precondition {
       condition     = var.autoscaling_min_capacity >= 1 && var.autoscaling_max_capacity >= var.autoscaling_min_capacity
       error_message = "autoscaling capacities must satisfy 1 <= min_capacity <= max_capacity."
     }
 
     precondition {
-      condition     = var.performance_insights_retention_days <= 7 || var.performance_insights_kms_key_id != null
+      condition     = var.performance_insights_retention_days <= 7 || local.effective_performance_insights_kms_key_id != null
       error_message = "RDS Performance Insights retention over 7 days requires performance_insights_kms_key_id (a customer-managed KMS key)."
     }
   }
@@ -140,7 +150,7 @@ module "database" {
   subnet_ids                          = var.enable_nat_gateway ? module.networking.private_subnet_ids : module.networking.public_subnet_ids
   enable_deletion_protection          = local.effective_deletion_protection
   performance_insights_retention_days = var.performance_insights_retention_days
-  performance_insights_kms_key_id     = var.performance_insights_kms_key_id
+  performance_insights_kms_key_id     = local.effective_performance_insights_kms_key_id
 }
 
 # -----------------------------------------------------------------------------
@@ -156,12 +166,13 @@ module "secrets" {
 
   # Database connection details — used to build the full connection strings
   # stored in SSM so the app only needs one parameter ARN.
-  rds_endpoint  = module.database.rds_endpoint
-  rds_port      = module.database.rds_port
-  rds_db_name   = module.database.rds_db_name
-  rds_username  = module.database.rds_username
-  rds_password  = module.database.rds_password
-  sqs_queue_arn = local.sqs_queue_arn
+  rds_endpoint   = module.database.rds_endpoint
+  rds_port       = module.database.rds_port
+  rds_db_name    = module.database.rds_db_name
+  rds_username   = module.database.rds_username
+  rds_password   = module.database.rds_password
+  sqs_queue_arn  = local.sqs_queue_arn
+  ssm_kms_key_id = local.customer_managed_kms_key_id
 }
 
 # -----------------------------------------------------------------------------
@@ -205,4 +216,14 @@ module "compute" {
   sqs_queue_arn            = local.sqs_queue_arn
   redis_url                = local.redis_url
   public_subnet_ids        = module.networking.public_subnet_ids
+}
+
+module "waf" {
+  count  = var.enable_waf ? 1 : 0
+  source = "./modules/waf"
+
+  project_name = var.project_name
+  environment  = var.environment
+  alb_arn      = module.compute.alb_arn
+  rate_limit   = var.waf_rate_limit
 }

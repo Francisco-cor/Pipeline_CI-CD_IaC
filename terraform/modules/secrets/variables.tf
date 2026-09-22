@@ -43,3 +43,10 @@ variable "sqs_queue_arn" {
   type        = string
   default     = ""
 }
+
+variable "ssm_kms_key_id" {
+  description = "Optional customer-managed KMS key ARN used by the SSM SecureString parameter and its execution-role decrypt permission."
+  type        = string
+  default     = null
+  nullable    = true
+}
