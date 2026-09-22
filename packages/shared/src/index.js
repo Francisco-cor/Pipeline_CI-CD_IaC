@@ -10,6 +10,7 @@ const errors = require('./errors');
 const logger = require('./logger');
 const metrics = require('./metrics');
 const middleware = require('./middleware');
+const outbox = require('./outbox');
 const pagination = require('./pagination');
 const queue = require('./queue');
 const tracing = require('./tracing');
@@ -65,6 +66,9 @@ module.exports = {
   cache,
   // queue (Fase 10.6)
   queue,
+  enqueueOutboxEvent: outbox.enqueueOutboxEvent,
+  enqueueOrdenCreada: outbox.enqueueOrdenCreada,
+  enqueueStockActualizado: outbox.enqueueStockActualizado,
   publishOrdenCreada: queue.publishOrdenCreada,
   publishStockActualizado: queue.publishStockActualizado,
 

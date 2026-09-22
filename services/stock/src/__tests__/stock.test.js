@@ -41,6 +41,16 @@ describe('Stock API — CRUD + validation', () => {
       const res = await request(app).post('/stock').send(payload);
       expect(res.status).toBe(201);
       expect(res.body.data.tipo).toBe('entrada');
+      const outbox = await pool.query(
+        'SELECT event_type, aggregate_id FROM outbox_events WHERE aggregate_type = $1 AND aggregate_id = $2',
+        ['movimiento_stock', res.body.data.id]
+      );
+      expect(outbox.rows).toEqual([
+        expect.objectContaining({
+          event_type: 'stock.actualizado',
+          aggregate_id: String(res.body.data.id),
+        }),
+      ]);
     });
 
     it('201 salida', async () => {

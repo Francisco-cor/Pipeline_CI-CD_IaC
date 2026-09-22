@@ -39,7 +39,7 @@ Trade-off: fallback DB mantiene compat tests sin service discovery; HTTP aporta 
 
 - `servicios/stock/src/routes/stock.js:42` `BEGIN; SELECT ... FOR UPDATE; INSERT movimientos; COMMIT` con `client.connect()` — trigger `005_stock_invariant.sql:6` sigue aplicando `stock insuficiente → RAISE EXCEPTION`.
 - `409 STOCK_CONFLICT` si `stock insuficiente`.
-- Invalida cache `productos:list:*` + `productos:id:*` + publica `stock.actualizado` via queue (best-effort).
+- Invalida cache `productos:list:*` + `productos:id:*` + persiste `stock.actualizado` en el outbox dentro de la transacción.
 
 ### 10.3 Auto-scaling (toggle `enable_autoscaling`)
 
@@ -71,12 +71,11 @@ Trade-off: memory fallback mantiene dev $0 sin Redis; ElastiCache da persistenci
 
 ### 10.6 SQS event publication `orden → stock` async (optional)
 
-- `packages/shared/src/queue.js:1` abstraction: si `SQS_QUEUE_URL` seteado usa `@aws-sdk/client-sqs` `SendMessage`, si no log `queue_publish_noop`.
-- `ordenes.js:140` `publishOrdenCreada(orden)` best-effort tras INSERT; `stock.js:70` `publishStockActualizado`. Esto es publicación posterior al commit, no un outbox transaccional persistido.
-- `terraform/sqs.tf:1` `aws_sqs_queue ordenes` + `ordenes-dlq` (DLQ 14d, redrive 5) toggle `enable_sqs=false` ($0.40/millón).
-- Consumer opcional `startConsumer` polling cuando `POLL_SQS=true` — doc para ECS sidecar futuro; no activo por defecto.
+- `ordenes.js` y `stock.js` insertan `outbox_events` en la misma transacción que el agregado. `queue.js` ejecuta el relay con reintentos y backoff; no se pierde el evento si SQS está temporalmente caído.
+- `stock` consume `orden.creada` dentro de una transacción con `inbox_events`; el `event_id` evita repetir el movimiento ante redelivery. `POLL_SQS=false` detiene el consumer como kill switch.
+- `terraform/sqs.tf:1` `aws_sqs_queue ordenes` + `ordenes-dlq` (DLQ 14d, redrive 5, visibilidad 60s, long polling 20s) toggle `enable_sqs=false` ($0.40/millón).
 
-Prod toggle: `enable_sqs=true` → Terraform ya agrega `sqs:SendMessage` al task role; todavía falta activar un consumidor real y garantizar outbox/idempotencia.
+Prod toggle: `enable_sqs=true` → Terraform agrega `sqs:SendMessage`, `ReceiveMessage`, `DeleteMessage` y `GetQueueAttributes` al task role. La activación requiere aplicar migración 007 y validar relay, inbox y DLQ en staging.
 
 ### 10.7 Chaos / Load
 
@@ -110,7 +109,7 @@ Prod toggle: `enable_sqs=true` → Terraform ya agrega `sqs:SendMessage` al task
 - **Complejidad operativa:** +4 toggles + 3 servicios Redis/SQS/ALB → 6 combinaciones que testear (dev vs prod).
 - **Cache invalidation:** `productos:list:*` wildcard `del` escanea keys (ineficiente con muchos keys) — aceptable para portfolio (<500 keys).
 - **ElastiCache single node:** `num_cache_nodes=1` sin replica — aceptable dev, prod debería usar replication_group multi-AZ.
-- **Entrega de eventos:** el publish actual es best-effort y puede perder mensajes entre el commit y SQS; falta outbox persistido, reintentos e idempotencia del consumidor.
+- **Entrega de eventos:** el outbox evita perder eventos entre commit y SQS; la entrega es al menos una vez y depende de observar la DLQ, los reintentos y el crecimiento de `outbox_events`.
 
 ### Trade-offs Accepted
 
@@ -162,10 +161,10 @@ terraform -chdir=terraform apply -var-file=environments/prod.tfvars
 - `terraform/cache.tf:1` ElastiCache + `terraform/sqs.tf:1` SQS
 - `packages/shared/src/circuitBreaker.js:1` breaker
 - `packages/shared/src/cache.js:1` cache Redis/memory
-- `packages/shared/src/queue.js:1` SQS abstraction
+- `packages/shared/src/queue.js:1` SQS abstraction, relay e inbox idempotente
 - `services/ordenes/src/routes/ordenes.js:23` decoupling + fallback
 - `services/productos/src/routes/productos.js:15` cache + `GET /:id`
-- `services/stock/src/routes/stock.js:42` transacción de stock; el outbox SQS sigue pendiente
+- `services/stock/src/routes/stock.js:42` transacción de stock + outbox/inbox SQS
 - `docker-compose.yml:9` redis + envs
 - `scripts/chaos.sh:1` + `scripts/k6/resilience.js:1`
 - `docs/adr/ADR-001-public-subnets-no-nat-gateway.md:1` FinOps base

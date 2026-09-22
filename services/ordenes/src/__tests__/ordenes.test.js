@@ -56,6 +56,16 @@ describe('Ordenes API — CRUD + validation', () => {
       expect(res.status).toBe(201);
       expect(res.body.data.producto_id).toBe(productoId);
       expect(res.headers['x-request-id']).toBeDefined();
+      const outbox = await pool.query(
+        'SELECT event_type, aggregate_id, published_at FROM outbox_events WHERE aggregate_type = $1 AND aggregate_id = $2',
+        ['orden', res.body.data.id]
+      );
+      expect(outbox.rows).toEqual([
+        expect.objectContaining({
+          event_type: 'orden.creada',
+          aggregate_id: String(res.body.data.id),
+        }),
+      ]);
     });
 
     it('400 when total negative', async () => {

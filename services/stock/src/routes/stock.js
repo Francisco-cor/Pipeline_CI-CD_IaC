@@ -3,8 +3,8 @@
 const {
   AppError,
   cache,
+  enqueueStockActualizado,
   parsePagination,
-  publishStockActualizado,
   setPaginationHeaders,
   sortToOrderBy,
   stockSchema,
@@ -60,16 +60,16 @@ router.post('/', validate(stockSchema), async (req, res, next) => {
       [producto_id, cantidad, tipo]
     );
 
-    await client.query('COMMIT');
-
     const movimiento = rows[0];
+
+    // The movement and its event are committed atomically. SQS delivery is
+    // delegated to the durable outbox relay after this transaction commits.
+    await enqueueStockActualizado(client, movimiento);
+    await client.query('COMMIT');
 
     // Invalida cache productos (stock cambió) — best effort
     cache.del('productos:list:*').catch(() => {});
     cache.del(`productos:id:${producto_id}`).catch(() => {});
-
-    // Publica evento stock.actualizado (10.6) — best effort no bloquea
-    publishStockActualizado(movimiento).catch(() => {});
 
     res.status(201).json({ data: movimiento });
   } catch (err) {

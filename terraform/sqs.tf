@@ -16,7 +16,10 @@ resource "aws_sqs_queue" "ordenes" {
   count = var.enable_sqs ? 1 : 0
   name  = "${var.project_name}-${var.environment}-ordenes"
 
-  visibility_timeout_seconds = 30
+  # The worker uses a 60s visibility timeout and deletes only after the DB
+  # transaction commits. Failed deliveries remain available for retry.
+  visibility_timeout_seconds = 60
+  receive_wait_time_seconds  = 20
   message_retention_seconds  = 345600 # 4 days
 
   redrive_policy = jsonencode({

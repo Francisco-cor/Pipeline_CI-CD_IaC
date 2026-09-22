@@ -3,8 +3,8 @@
 const {
   AppError,
   CircuitBreaker,
+  enqueueOrdenCreada,
   parsePagination,
-  publishOrdenCreada,
   setPaginationHeaders,
   sortToOrderBy,
   validate,
@@ -127,6 +127,7 @@ router.get('/', async (req, res, next) => {
 
 // POST /ordenes — zod + FK check (Fase 10.1 HTTP + circuit breaker) + SQS outbox (10.6)
 router.post('/', validate(ordenSchema), async (req, res, next) => {
+  const client = await pool.connect();
   try {
     const { producto_id, cantidad, total } = req.body;
 
@@ -135,18 +136,24 @@ router.post('/', validate(ordenSchema), async (req, res, next) => {
       throw new AppError(404, 'NOT_FOUND', `producto ${producto_id} not found`);
     }
 
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+    const { rows } = await client.query(
       'INSERT INTO ordenes (producto_id, cantidad, total) VALUES ($1, $2, $3) RETURNING *',
       [producto_id, cantidad, total]
     );
     const orden = rows[0];
 
-    // Fase 10.6 — publica orden.creada best-effort (no bloquea respuesta si SQS no configurado)
-    publishOrdenCreada(orden).catch(() => {});
+    // The order and its event are committed atomically. SQS delivery is
+    // delegated to the durable outbox relay after this transaction commits.
+    await enqueueOrdenCreada(client, orden);
+    await client.query('COMMIT');
 
     res.status(201).json({ data: orden });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     next(err);
+  } finally {
+    client.release();
   }
 });
 

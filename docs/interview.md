@@ -49,7 +49,7 @@ Métrica: `desired p95 <300ms @50rps` (`scripts/k6/resilience.js:1`) orden sin p
 - `services/stock/src/routes/stock.js:42` `client.connect() → BEGIN; SELECT id,stock FROM productos WHERE id=$1 FOR UPDATE; INSERT movimientos; COMMIT` (`catch ROLLBACK`).
 - `migrations/sql/005_stock_invariant.sql:6` `CREATE FUNCTION check_and_update_stock() RETURNS TRIGGER` `AFTER INSERT ON movimientos_stock` `current_stock FOR UPDATE` → `entrada +cantidad / salida -cantidad` `IF new_stock<0 RAISE EXCEPTION 'stock insuficiente...'`.
 - App mapea `err.message includes 'stock insuficiente'` → `AppError 409 STOCK_CONFLICT` (`stock.js:80`). `409` testeable en `scripts/chaos.sh:77` `stock invariant`.
-- Invalida `cache productos:list:*` + `productos:id` + `publishStockActualizado` (`queue.js:1`).
+- Invalida `cache productos:list:*` + `productos:id` y persiste `stock.actualizado` en el outbox transaccional (`outbox.js:1`).
 
 Concurrent `FOR UPDATE` lock fila `productos` evita race.
 
@@ -70,14 +70,15 @@ Hit rate >80% esperado en reads 90% (`scripts/k6/resilience.js:1` mix 90% reads)
 
 ## 6. ¿Por qué SQS async `orden → stock` y cómo lo simulaste?
 
-**Publicación de eventos (Fase 10.6; outbox persistido pendiente).**
+**Publicación y consumo de eventos (Fase 10.6).**
 
-- `packages/shared/src/queue.js:1` `publish(payload)` — si `SQS_QUEUE_URL` seteado `SQSClient region us-east-2` `SendMessageCommand` `MessageAttributes event/service`, si no `logger.info queue_publish_noop`. `publishOrdenCreada(orden)` best-effort tras `INSERT ordenes` (`ordenes.js:144` `.catch(()=>{})`) no bloquea respuesta `201`; `publishStockActualizado` en `stock.js:70`.
-- `terraform/sqs.tf:1` `aws_sqs_queue ordenes` + `ordenes-dlq` `redrive_policy maxReceive 5` `visibility 30s` toggle `enable_sqs` (`$0.40/M`) + identity policy limitada al task role.
-- Consumer `startConsumer(handler)` polling `ReceiveMessage Wait 10s` `Max 5` + `DeleteMessage` cuando `POLL_SQS=true` — documentado para ECS sidecar futuro (`frontend/README` no activo por defecto).
-- `taskdef.json.tftpl:62` env `SQS_QUEUE_URL`.
+- `services/ordenes/src/routes/ordenes.js` y `services/stock/src/routes/stock.js` escriben `outbox_events` junto al registro de dominio; no hay ventana de pérdida entre commit y SQS.
+- `packages/shared/src/queue.js:1` reclama el outbox con `SKIP LOCKED`, publica con backoff y mantiene `published_at`; el task de stock inicia relay + consumer cuando `SQS_QUEUE_URL` está configurado.
+- `inbox_events` se inserta en la misma transacción que el efecto de stock. Una redelivery encuentra el `event_id` existente, no repite el movimiento y sí permite borrar el mensaje.
+- `terraform/sqs.tf:1` `aws_sqs_queue ordenes` + `ordenes-dlq` `redrive_policy maxReceive 5` `visibility 60s` + long polling 20s; identity policy limitada al task role.
+- `taskdef.json.tftpl` expone `SQS_QUEUE_URL`; `POLL_SQS=false` es el interruptor de emergencia para detener el consumidor.
 
-Beneficio: `orden.creada` desacopla stock async; sin SQS, log `noop` mantiene `main` verde. Para producción falta persistir el evento en la misma transacción, reintentar y deduplicar antes de tratarlo como outbox completo.
+Beneficio: `orden.creada` desacopla stock async y mantiene una entrega al menos una vez operable; sin SQS, el outbox se conserva para inspección y no se abre ninguna conexión AWS. Antes de activar `enable_sqs` en producción hay que aplicar la migración 007, probar el flujo en staging y configurar alarmas sobre la DLQ.
 
 ---
 

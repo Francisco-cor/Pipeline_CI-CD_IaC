@@ -6,12 +6,14 @@ const {
   metricsHandler,
   metricsMiddleware,
   notFoundHandler,
+  queue,
   securityMiddleware,
 } = require('@erp/shared');
 const express = require('express');
 
 initTracing(process.env.SERVICE_NAME || 'svc-stock');
 
+const { handleQueueEvent } = require('./consumer');
 const pool = require('./db');
 const logger = require('./logger');
 const healthRouter = require('./routes/health');
@@ -58,6 +60,11 @@ app.use('/api/v1/stock', stockRouter);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
+// With SQS configured, the stock task both relays committed outbox rows and
+// consumes events. The inbox transaction makes redeliveries idempotent.
+const outboxRelay = queue.startOutboxRelay(pool);
+const queueConsumer = queue.startConsumer(handleQueueEvent, { pool });
+
 module.exports = app;
 
 /* istanbul ignore next -- exercised by the container entrypoint, not supertest */
@@ -68,6 +75,8 @@ if (require.main === module) {
 
   process.on('SIGTERM', () => {
     logger.info('SIGTERM received, closing server');
+    outboxRelay?.stop();
+    queueConsumer?.stop();
     server.close(() => {
       pool.end(() => process.exit(0));
     });
