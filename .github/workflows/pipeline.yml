@@ -44,7 +44,7 @@ env:
   AWS_REGION: us-east-2
   PROJECT_NAME: erp-pipeline
   ENVIRONMENT: dev
-  NODE_VERSION: '20'
+  NODE_VERSION: '24'
 
 # Permisos mínimos a nivel workflow; cada job los eleva si necesita
 permissions:
@@ -69,9 +69,9 @@ jobs:
       terraform: ${{ steps.filter.outputs.terraform }}
       any_service: ${{ steps.filter.outputs.any_service }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         id: filter
         with:
           filters: |
@@ -127,16 +127,16 @@ jobs:
         service: [productos, ordenes, stock, gateway]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: services/${{ matrix.service }}/package-lock.json
 
       - name: Cache ESLint
-        uses: actions/cache@v4
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
           path: services/${{ matrix.service }}/.eslintcache
           key: eslint-${{ matrix.service }}-${{ hashFiles(format('services/{0}/src/**/*.js', matrix.service)) }}-${{ hashFiles(format('services/{0}/package.json', matrix.service)) }}
@@ -162,9 +162,9 @@ jobs:
     name: Prettier check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -193,9 +193,9 @@ jobs:
         service: [productos, ordenes, stock, gateway]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -219,12 +219,12 @@ jobs:
     name: Gitleaks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -245,10 +245,10 @@ jobs:
       security-events: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Run Trivy FS
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.24.0
         with:
           scan-type: fs
           scan-ref: '.'
@@ -259,7 +259,7 @@ jobs:
           exit-code: '1'
 
       - name: Upload Trivy FS SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
         if: always()
         with:
           sarif_file: trivy-fs.sarif
@@ -305,9 +305,9 @@ jobs:
       NODE_ENV: test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -325,7 +325,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-${{ matrix.service }}
           path: services/${{ matrix.service }}/coverage
@@ -349,7 +349,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Build and up
         run: docker compose up -d --build --wait
       - name: Wait for nginx healthy
@@ -387,13 +387,13 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: 1.9.8
 
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: terraform-linters/setup-tflint@90f302c255ef959cbfb4bd10581afecdb7ece3e6 # v4.1.1
         with:
           tflint_version: v0.53.0
 
@@ -418,7 +418,7 @@ jobs:
         working-directory: terraform
 
       - name: Checkov (sarif)
-        uses: bridgecrewio/checkov-action@v12
+        uses: bridgecrewio/checkov-action@252558a0a63b7d3e9aec0342c208e9fe280ed345 # v12.3059.0
         with:
           directory: terraform
           framework: terraform
@@ -428,7 +428,7 @@ jobs:
           quiet: true
 
       - name: Upload Checkov SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
         if: always()
         with:
           sarif_file: checkov.sarif
@@ -457,19 +457,19 @@ jobs:
       image_tag: ${{ steps.tag.outputs.value }}
       deploy_services: ${{ steps.deploy_services.outputs.value }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
       - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@4625ce35226a7557230889aae2f52eb50ec3dcda # v2.0.1
 
       - name: Compute image tag
         id: tag
@@ -501,7 +501,7 @@ jobs:
       # --- productos ---
       - name: Build & push productos
         if: needs.changes.outputs.productos == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           file: services/productos/Dockerfile
@@ -521,7 +521,7 @@ jobs:
       # --- ordenes ---
       - name: Build & push ordenes
         if: needs.changes.outputs.ordenes == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           file: services/ordenes/Dockerfile
@@ -541,7 +541,7 @@ jobs:
       # --- stock ---
       - name: Build & push stock
         if: needs.changes.outputs.stock == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           file: services/stock/Dockerfile
@@ -561,7 +561,7 @@ jobs:
       # --- gateway ---
       - name: Build & push gateway
         if: needs.changes.outputs.gateway == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           file: services/gateway/Dockerfile
@@ -581,7 +581,7 @@ jobs:
       # --- nginx ---
       - name: Build & push nginx
         if: needs.changes.outputs.nginx == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: nginx
           file: nginx/Dockerfile
@@ -601,7 +601,7 @@ jobs:
       # --- migrations ---
       - name: Build & push migrations
         if: needs.changes.outputs.migrations == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: migrations
           file: migrations/Dockerfile
@@ -651,13 +651,13 @@ jobs:
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
     steps:
       - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@4625ce35226a7557230889aae2f52eb50ec3dcda # v2.0.1
 
       - name: ECR base
         id: ecr
@@ -673,7 +673,7 @@ jobs:
           (matrix.service == 'gateway' && needs.changes.outputs.gateway == 'true') ||
           (matrix.service == 'nginx' && needs.changes.outputs.nginx == 'true') ||
           (matrix.service == 'migrations' && needs.changes.outputs.migrations == 'true')
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@6e7b7d1fd3e4fef0c5fa8cce1229c54b2c9bd0d8 # v0.24.0
         with:
           image-ref: ${{ steps.ecr.outputs.base }}/${{ env.PROJECT_NAME }}-${{ matrix.service }}:${{ env.IMAGE_TAG }}
           format: sarif
@@ -683,7 +683,7 @@ jobs:
           exit-code: '1'
 
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
         if: |
           always() && (
             (matrix.service == 'productos' && needs.changes.outputs.productos == 'true') ||
@@ -718,10 +718,10 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
