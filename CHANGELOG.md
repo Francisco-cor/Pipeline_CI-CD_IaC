@@ -1,3 +1,14 @@
+# [1.12.0](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/compare/v1.11.0...v1.12.0) (2026-09-22)
+
+
+### Features
+
+* **events:** add transactional SQS outbox and idempotent consumer ([f78cefc](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/f78cefcad962d01606ac5d90b12c30647c5f7681))
+* harden pipeline and complete gateway delivery ([f693475](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/f6934758e7c82b7a602945d2260911d346bc662a))
+* **network:** enforce private production subnets ([7390cae](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/7390caeca5db69c5e67597ca710d4d557fbee62c))
+* **observability:** alert on SQS backlog and DLQ ([cfe64ec](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/cfe64ec7608f4fc3b1274cb835dae818cfc64349))
+* **security:** harden production edge and encryption ([b88a940](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/b88a940520a48d04ae19d54aff6abe2bd0d5bed5))
+
 # Changelog — ERP Pipeline
 
 > Formato `Keep a Changelog` + `Conventional Commits`. Generado con `semantic-release` + `conventional-changelog` (`npm run changelog`).
