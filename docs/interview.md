@@ -88,7 +88,7 @@ Beneficio: `orden.creada` desacopla stock async y mantiene una entrega al menos 
 
 - `terraform/modules/compute/main.tf:296` `aws_appautoscaling_target ecs count enable_autoscaling` `min 1 max 4` (`prod.tfvars:27` `min 2 max 4` HA) + `aws_appautoscaling_policy cpu` `target 70%` `ECSServiceAverageCPUUtilization` `scale_in/out 60s` + `memory 80%`.
 - `aws_ecs_service.app desired_count = enable_autoscaling ? min : 1` (`compute/main.tf:234`) + `lifecycle ignore_changes [task_definition, desired_count]` para que ASG no driftee.
-- Sin ALB, métrica es CPU/memory (no `ALBRequestCount`); con ALB futuro se añade `policy request 1000`.
+- Sin ALB, métrica es CPU/memory (no `ALBRequestCount`); con ALB se mantiene CPU/memory y puede añadirse una policy de requests tras validar la métrica.
 
 Demo: `desired 1→3 escala <3m` (Fase 10 métrica) vía `aws application-autoscaling describe-scaling-activities`.
 
@@ -98,12 +98,12 @@ Demo: `desired 1→3 escala <3m` (Fase 10 métrica) vía `aws application-autosc
 
 **Prod toggle (Fase 10.4).**
 
-- `terraform/modules/compute/main.tf:320` `aws_security_group alb 80/443` + `aws_lb main` `application` `subnets = public_subnet_ids` `enable_deletion_protection false` + `aws_lb_target_group app ip:80 /health healthy 2 unhealthy 2` + `aws_lb_listener http 80 forward` + `https 443` si `acm_certificate_arn`.
+- `terraform/modules/compute/main.tf:320` `aws_security_group alb 80/443` + `aws_lb main` `application` `subnets = public_subnet_ids` con protección de borrado en prod + `aws_lb_target_group app ip:80 /health` + redirección HTTP→HTTPS cuando existe ACM.
 - `aws_ecs_service load_balancer dynamic` solo `enable_alb` → `container_name nginx 80` (`compute/main.tf:241`) + `aws_security_group_rule app_from_alb` `sg_alb → sg_app 80`.
 - Dev `enable_alb=false` (FinOps `$16/mes` ahorrado) usa `nginx` sidecar `127.0.0.1:3001` (ADR-001). Prod `enable_alb=true` requiere `enable_nat_gateway=true` + `acm_certificate_arn` (TLS `ELBSecurityPolicy-TLS-1-2`).
 - `nginx.conf:102` `location ~ ^/api/v1/bff/ordenes` proxy a `gateway:3004` (Fase 11.1) vs `ordenes` direct.
 
-Beneficio: TLS ACM + health TG + WAF `ADR-003` (`aws_wafv2_web_acl_association` futuro).
+Beneficio: TLS ACM + health TG + WAF `ADR-003` (`aws_wafv2_web_acl_association` implementado).
 
 ---
 
@@ -139,7 +139,7 @@ Trade-off: coupling monorepo vs multi-repo — `npm run test --workspaces` + art
 
 - `packages/shared/src/logger.js:14` `AsyncLocalStorage storage + getRequestId/runWithRequestId` + `middleware.js:12` `storage.enterWith({requestId})` (correlation-id) → JSON `requestId` en `http_request` log `services/productos/src/index.js:33` → CloudWatch `/ecs/erp-pipeline-{env}` `retention 7d dev / 90d prod` (`compute/main.tf:110`) + Insights `filter level=error | stats by service` + `filter requestId=xxx` (`docs/observability.md:30`).
 - `packages/shared/src/metrics.js:20` `prom-client Registry histogram http_request_duration_ms buckets 5..2500` + `counter http_requests_total` + `gauge activeRequests` + `metricsMiddleware` EMF `_aws HttpLatency` → `GET /metrics` (`services/productos/src/index.js:63` + `nginx.conf:45`) + `dashboard.tf:10` 6 widgets CPU/Mem/Error/Latency p95/5xx + log table `filter level=error`.
-- `terraform/observability.tf:49` 4 alarmas `ServiceErrorCount>10/5m`, `p95>500ms`, `5xx>10/5m`, `DBConnections>80` → SNS `alert_email` + `docs/runbooks/alert.md:1` triage `<5m` dashboard→logs→health→traces→rollback.
+- `terraform/observability.tf:49` 4 alarmas base (`ServiceErrorCount>10/5m`, `p95>500ms`, `5xx>10/5m`, `DBConnections>80`) y, con `enable_sqs`, backlog/edad/DLQ → SNS `alert_email` + `docs/runbooks/alert.md:1` triage `<5m` dashboard→logs→health→traces→rollback.
 - `packages/shared/src/tracing.js:20` `NodeSDK auto-instrumentations OTLPTraceExporter http://localhost:4318/v1/traces` `OTEL_ENABLED` `TRACE_SAMPLE_RATIO 0.1` (`services/*/src/index.js:13` `initTracing`) → Jaeger `http://localhost:16686` / X-Ray.
 - `services/*/src/routes/health.js:60` `GET /health/details` `pool {totalCount,idleCount,waitingCount}` + `uptime_s` + `memory rss/heap` + `version` + `requestId` + `latency_ms` (`nginx.conf:61` `~ ^/health/(live|ready|details)$`).
 
@@ -207,9 +207,9 @@ Métrica Fase 11: `make verify` verde + `README` 2m convence senior.
 
 **Gap → Fase 11 polish vs prod checklist.**
 
-- **WAF** `ADR-003-waf.md:1` `enable_waf` cuando `enable_alb=true` + `aws_wafv2_web_acl` managed `CommonRuleSet` + `RateLimit 1000/5m` (`~$5/mes`).
-- **KMS CMK** para `SecureString` SSM + `kms:Decrypt ViaService ssm` ya en `secrets/main.tf:73` pero sin CMK custom; `terraform/secrets` podría crear `aws_kms_key`.
-- **Backup PITR** 7d prod ya (`database/main.tf:107`), pero falta `final_snapshot true` en prod (`variable prod guard` `main.tf:54`).
+- **WAF** ya implementado en `terraform/modules/waf`, obligatorio en producción junto con ALB y ACM; falta probar las reglas administradas en staging.
+- **KMS CMK** ya cableada para SSM y Performance Insights mediante `terraform/kms.tf`; producción la crea con rotación habilitada o acepta un ARN existente.
+- **Backups**: RDS conserva 7 días en prod, Multi-AZ y `final_snapshot` protegido por `deletion_protection`.
 - **Multi-AZ** `multi_az prod?true:false` ya (`database/main.tf:104`) pero `desired_count 1` → `enable_autoscaling min 2` HA.
 - **Secret rotation lambda** `docs/security/rotation.md:40` manual `ssm put-parameter` + `taint random_password`; prod lambda rotation.
 

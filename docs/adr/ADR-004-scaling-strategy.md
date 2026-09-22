@@ -77,7 +77,13 @@ Trade-off: memory fallback mantiene dev $0 sin Redis; ElastiCache da persistenci
 
 Prod toggle: `enable_sqs=true` → Terraform agrega `sqs:SendMessage`, `ReceiveMessage`, `DeleteMessage` y `GetQueueAttributes` al task role. La activación requiere aplicar migración 007 y validar relay, inbox y DLQ en staging.
 
-### 10.7 Chaos / Load
+### 10.7 Queue observability
+
+- `terraform/observability.tf` crea, cuando `enable_sqs=true`, alarmas para profundidad de cola, edad del mensaje más antiguo y DLQ no vacía.
+- El runbook `docs/runbooks/alert.md` relaciona esas alarmas con logs `outbox_publish_ok/failed`, salud ECS y crecimiento de `outbox_events`.
+- Las alarmas permanecen condicionales para que el modo FinOps por defecto no cree referencias a colas inexistentes.
+
+### 10.8 Chaos / Load
 
 - `scripts/chaos.sh:1` kill-productos, latency, cache, stock invariant — `docker stop erp-productos` verifica fallback 404 sin 500.
 - `scripts/k6/resilience.js:1` 50 rps con mix reads/writes + 10% bad producto_id → 404 debe ser <1% `http_req_failed` y p95 <300ms.

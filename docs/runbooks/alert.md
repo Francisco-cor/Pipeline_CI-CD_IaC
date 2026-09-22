@@ -4,12 +4,15 @@
 
 ## Alarmas
 
-| Alarma                  | Métrica                                  | Umbral   | Causa común                                                                                               |
-| ----------------------- | ---------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
-| `*-high-error-rate`     | `ServiceErrorCount Sum 5m`               | `>10`    | bug 500, DB down, migración fallida                                                                       |
-| `*-high-latency-p95`    | `HttpLatency p95 5m`                     | `>500ms` | slow query (`log_min_duration 1000` en `database/main.tf:60`), pool exhaustion, falta de índice `pg_trgm` |
-| `*-high-5xx-rate`       | `Http5xxCount Sum 5m`                    | `>10`    | 5xx por validación no capturada o `pool` timeout                                                          |
-| `*-db-connections-high` | `AWS/RDS DatabaseConnections Maximum 5m` | `>80`    | pool leak (`DB_POOL_MAX=3` × N tasks, t3.micro max 112), `idleTimeout` mal, falta `pool.end()`            |
+| Alarma                      | Métrica                                                 | Umbral   | Causa común                                                                                               |
+| --------------------------- | ------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
+| `*-high-error-rate`         | `ServiceErrorCount Sum 5m`                              | `>10`    | bug 500, DB down, migración fallida                                                                       |
+| `*-high-latency-p95`        | `HttpLatency p95 5m`                                    | `>500ms` | slow query (`log_min_duration 1000` en `database/main.tf:60`), pool exhaustion, falta de índice `pg_trgm` |
+| `*-high-5xx-rate`           | `Http5xxCount Sum 5m`                                   | `>10`    | 5xx por validación no capturada o `pool` timeout                                                          |
+| `*-db-connections-high`     | `AWS/RDS DatabaseConnections Maximum 5m`                | `>80`    | pool leak (`DB_POOL_MAX=3` × N tasks, t3.micro max 112), `idleTimeout` mal, falta `pool.end()`            |
+| `*-sqs-backlog-high`        | `AWS/SQS ApproximateNumberOfMessagesVisible Maximum 5m` | `>10`    | relay outbox detenido, consumidor lento o bloqueo de DB                                                   |
+| `*-sqs-oldest-message-high` | `AWS/SQS ApproximateAgeOfOldestMessage Maximum 5m`      | `>300s`  | latencia sostenida del relay/consumer                                                                     |
+| `*-sqs-dlq-not-empty`       | `AWS/SQS ApproximateNumberOfMessagesVisible Maximum 1m` | `>=1`    | mensaje rechazado cinco veces; revisar antes de replay                                                    |
 
 ## Flujo de triage (SLO <5m)
 
@@ -67,13 +70,15 @@ La traza muestra si el cuello es `pg.query` (DB) vs `express` vs `rate-limit`.
 
 ### 5. Decisión
 
-| Hallazgo                                                                              | Acción                                                                                                    |
-| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `level=error` `stock insufficient` + `ServiceErrorCount`                              | Bug funcional → rollback `IMAGE_TAG=sha-prev bash scripts/deploy.sh` (ver `docs/runbooks/rollback.md:1`)  |
-| `ms >500` + `pg_stat_statements` top query `SELECT * FROM productos WHERE similarity` | Falta índice `pg_trgm` (`migrations/006_trigram_search.sql:5`) o `N+1` → hotfix índice                    |
-| `DBConnections 85` + `pool.waitingCount 5`                                            | Pool leak → revisa `pool.end()` en `SIGTERM` (`index.js:60`), sube `DB_POOL_MAX` o escala `desired_count` |
-| `5xx` + `X-Request-Id` mismo en todos servicios                                       | NGINX `502` upstream no resuelve → `docker compose logs` / `ecs describe-services` events                 |
-| Falso positivo (1 spike)                                                              | Silencia 5m y observa `ok_actions` — alarma volverá a `OK` en 5m (`treat_missing_data=notBreaching`)      |
+| Hallazgo                                                                              | Acción                                                                                                                                     |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `level=error` `stock insufficient` + `ServiceErrorCount`                              | Bug funcional → rollback `IMAGE_TAG=sha-prev bash scripts/deploy.sh` (ver `docs/runbooks/rollback.md:1`)                                   |
+| `ms >500` + `pg_stat_statements` top query `SELECT * FROM productos WHERE similarity` | Falta índice `pg_trgm` (`migrations/006_trigram_search.sql:5`) o `N+1` → hotfix índice                                                     |
+| `DBConnections 85` + `pool.waitingCount 5`                                            | Pool leak → revisa `pool.end()` en `SIGTERM` (`index.js:60`), sube `DB_POOL_MAX` o escala `desired_count`                                  |
+| `5xx` + `X-Request-Id` mismo en todos servicios                                       | NGINX `502` upstream no resuelve → `docker compose logs` / `ecs describe-services` events                                                  |
+| `sqs-backlog-high` o `sqs-oldest-message-high`                                        | Revisa `ecs describe-services`, logs `outbox_publish_*`, locks/errores de DB y el tamaño de `outbox_events`; no borres eventos pendientes  |
+| `sqs-dlq-not-empty`                                                                   | Inspecciona el mensaje y la causa en CloudWatch; corrige el consumidor y usa `aws sqs start-message-move-task` solo tras validar el replay |
+| Falso positivo (1 spike)                                                              | Silencia 5m y observa `ok_actions` — alarma volverá a `OK` en 5m (`treat_missing_data=notBreaching`)                                       |
 
 ### 6. Cierre
 

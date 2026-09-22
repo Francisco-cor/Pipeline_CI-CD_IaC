@@ -103,7 +103,7 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 ## Observabilidad (Fase 9) + Scale metrics (Fase 10)
 
 - `logger.js:14` JSON `timestamp/level/service/message/requestId` via `AsyncLocalStorage` (`logger.js:14` + `middleware.js:12` `enterWith`) → CloudWatch `/ecs/*` `retention 7d dev / 90d prod` (`compute/main.tf:110`).
-- `observability.tf:34-150` metric filters `ServiceErrorCount` + `HttpLatency` (`$.ms`) + `Http5xxCount` (`$.status >=500`) → alarms `>10/5m` `p95>500ms` `5xx>10/5m` `DBConnections>80` (`AWS/RDS`) → SNS `alert_email`.
+- `observability.tf:34-250` metric filters `ServiceErrorCount` + `HttpLatency` (`$.ms`) + `Http5xxCount` (`$.status >=500`) → base alarms `>10/5m` `p95>500ms` `5xx>10/5m` `DBConnections>80` (`AWS/RDS`) plus conditional SQS backlog/age/DLQ alarms → SNS `alert_email`.
 - `dashboard.tf:10` 6 widgets CPU/Mem/Error/Latency p95/5xx/DB conns + log table `filter level=error` → `erp-pipeline-{env}-overview`.
 - `metrics.js:20` `prom-client` `http_request_duration_ms` histogram + `http_requests_total` + `http_active_requests` + EMF `HttpLatency` → `GET /metrics` (`services/*/src/index.js:14` + `nginx.conf:45`) + `X-Cache HIT/MISS` + `circuitBreaker` stats `GET /ordenes/_circuit`.
 - `tracing.js:20` OTel `NodeSDK` `auto-instrumentations` `OTLPTraceExporter` `OTEL_ENABLED` + `TRACE_SAMPLE_RATIO 0.1` → X-Ray/Jaeger `http://localhost:4318/v1/traces` (`services/*/src/index.js:3` `initTracing`).
@@ -112,10 +112,11 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 ## Seguridad (Fase 8)
 
 - OIDC GitHub→AWS (`cicd.tf:16-65`, `ADR-002`) — `prod` solo `main` (`cicd.tf:56` Fase 8.5), thumbprint `data.tls_certificate` auto + rotation doc `docs/security/rotation.md:1`.
-- SSM `SecureString` (`secrets/main.tf:23`) + `GetParameter/GetParameters` + `kms:Decrypt ViaService ssm` (`secrets/main.tf:73` Fase 8.1) + rotation manual `ssm put-parameter` + `taint random_password` (`docs/security/rotation.md:40`).
+- SSM `SecureString` (`secrets/main.tf:23`) + `GetParameter/GetParameters` + customer-managed KMS when enabled (`kms.tf:1`) + `kms:Decrypt ViaService ssm` scoped to the key ARN + rotation manual (`docs/security/rotation.md:40`).
 - `nginx.conf:14-40` `limit_req_zone 30r/s burst 60 429` + `server_tokens off` + headers `X-Content-Type-Options/HSTS/CSP/Permissions-Policy` (`nginx.conf:36` Fase 8.4) + `client_max_body_size 1m` + `proxy_hide_header`.
 - `packages/shared/src/db.js:18` + `migrations/run.js:15` RDS TLS `rejectUnauthorized:true` en prod con CA `certs/rds-ca-bundle.pem` `/app/certs` (`Dockerfile:25` Fase 8.2) + `trust proxy 1` + `express-rate-limit 100/min` (`middleware.js:20` + `index.js:14` Fase 8.3).
 - SGs (`networking/main.tf:114-181`) RDS solo `sg_app→5432`; public ingress to `sg_app` exists only in the explicit FinOps mode, while production reaches private tasks through ALB/ACM (Fase 8.8).
+- Production ALB traffic is protected by WAFv2 managed rules and a per-IP rate limit (`modules/waf/main.tf:1`); HTTP redirects to HTTPS when ACM is configured.
 - Supply chain: `gitleaks` + `trivy fs/image` + `npm audit --omit=dev high` + `checkov/tflint` 0 high.
 
 ## Convenciones

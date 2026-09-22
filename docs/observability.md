@@ -134,12 +134,15 @@ aws cloudwatch get-dashboard --dashboard-name erp-pipeline-dev-overview --region
 
 ## Alarmas — `terraform/observability.tf:49-150`
 
-| Alarma                | Métrica                                    | Umbral   | Acción       |
-| --------------------- | ------------------------------------------ | -------- | ------------ |
-| `high-error-rate`     | `ServiceErrorCount` `Sum 5m`               | `>10`    | SNS `alerts` |
-| `high-latency-p95`    | `HttpLatency` `p95 5m`                     | `>500ms` | SNS          |
-| `high-5xx-rate`       | `Http5xxCount` `Sum 5m`                    | `>10`    | SNS          |
-| `db-connections-high` | `AWS/RDS DatabaseConnections` `Maximum 5m` | `>80`    | SNS          |
+| Alarma                    | Métrica                                                   | Umbral   | Acción                       |
+| ------------------------- | --------------------------------------------------------- | -------- | ---------------------------- |
+| `high-error-rate`         | `ServiceErrorCount` `Sum 5m`                              | `>10`    | SNS `alerts`                 |
+| `high-latency-p95`        | `HttpLatency` `p95 5m`                                    | `>500ms` | SNS                          |
+| `high-5xx-rate`           | `Http5xxCount` `Sum 5m`                                   | `>10`    | SNS                          |
+| `db-connections-high`     | `AWS/RDS DatabaseConnections` `Maximum 5m`                | `>80`    | SNS                          |
+| `sqs-backlog-high`        | `AWS/SQS ApproximateNumberOfMessagesVisible` `Maximum 5m` | `>10`    | SNS cuando `enable_sqs=true` |
+| `sqs-oldest-message-high` | `AWS/SQS ApproximateAgeOfOldestMessage` `Maximum 5m`      | `>300s`  | SNS cuando `enable_sqs=true` |
+| `sqs-dlq-not-empty`       | `AWS/SQS ApproximateNumberOfMessagesVisible` `Maximum 1m` | `>=1`    | SNS cuando `enable_sqs=true` |
 
 Todas: `treat_missing_data=notBreaching` + `ok_actions` para cerrar.
 
@@ -261,7 +264,7 @@ for i in {1..11}; do curl -s -X POST http://localhost:80/api/v1/productos -H "Co
 - `packages/shared/src/logger.js:14` + `middleware.js:12` correlation-id
 - `packages/shared/src/metrics.js:20` prom-client + EMF
 - `terraform/dashboard.tf:10` 6 widgets
-- `terraform/observability.tf:49-150` 4 alarmas + 2 metric filters
+- `terraform/observability.tf:49-250` 4 alarmas base + 3 alarmas SQS condicionales + 2 metric filters
 - `packages/shared/src/tracing.js:20` OTel SDK
 - `services/*/src/routes/health.js:60` details
 - `nginx/nginx.conf:45` metrics/health proxy

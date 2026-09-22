@@ -154,17 +154,96 @@ resource "aws_cloudwatch_metric_alarm" "db_connections_high" {
   ok_actions    = [aws_sns_topic.alerts.arn]
 }
 
+# ----------------------------------------------------------------------------
+# SQS / outbox alerting (only when the queue is enabled)
+#
+# CloudWatch exposes queue depth and message age without requiring an
+# application-side exporter. These alarms cover the operational failure modes
+# of the transactional outbox: relay backlog, slow delivery, and messages
+# moved to the DLQ after repeated delivery failures.
+# ----------------------------------------------------------------------------
+
+resource "aws_cloudwatch_metric_alarm" "sqs_backlog_high" {
+  count = var.enable_sqs ? 1 : 0
+
+  alarm_name          = "${var.project_name}-${var.environment}-sqs-backlog-high"
+  alarm_description   = "More than 10 messages visible in the ordenes queue for 5 minutes — investigate the outbox relay or stock consumer."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  dimensions = {
+    QueueName = aws_sqs_queue.ordenes[0].name
+  }
+  period             = 300
+  statistic          = "Maximum"
+  threshold          = 10
+  treat_missing_data = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "sqs_oldest_message_high" {
+  count = var.enable_sqs ? 1 : 0
+
+  alarm_name          = "${var.project_name}-${var.environment}-sqs-oldest-message-high"
+  alarm_description   = "The oldest ordenes message is over 5 minutes old — investigate relay latency, consumer health, and database locks."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateAgeOfOldestMessage"
+  namespace           = "AWS/SQS"
+  dimensions = {
+    QueueName = aws_sqs_queue.ordenes[0].name
+  }
+  period             = 300
+  statistic          = "Maximum"
+  threshold          = 300
+  treat_missing_data = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "sqs_dlq_not_empty" {
+  count = var.enable_sqs ? 1 : 0
+
+  alarm_name          = "${var.project_name}-${var.environment}-sqs-dlq-not-empty"
+  alarm_description   = "At least one message is in the ordenes DLQ — inspect the event payload and consumer failure before replaying it."
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  dimensions = {
+    QueueName = aws_sqs_queue.ordenes_dlq[0].name
+  }
+  period             = 60
+  statistic          = "Maximum"
+  threshold          = 1
+  treat_missing_data = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
 output "sns_topic_arn" {
   description = "SNS topic ARN for CloudWatch alarm notifications."
   value       = aws_sns_topic.alerts.arn
 }
 
 output "alarm_names" {
-  description = "Fase 9.5 — lista de alarmas creadas (para runbook y dashboard)"
-  value = [
-    aws_cloudwatch_metric_alarm.high_error_rate.alarm_name,
-    aws_cloudwatch_metric_alarm.high_latency_p95.alarm_name,
-    aws_cloudwatch_metric_alarm.high_5xx_rate.alarm_name,
-    aws_cloudwatch_metric_alarm.db_connections_high.alarm_name,
-  ]
+  description = "List of CloudWatch alarms created for this environment."
+  value = concat(
+    [
+      aws_cloudwatch_metric_alarm.high_error_rate.alarm_name,
+      aws_cloudwatch_metric_alarm.high_latency_p95.alarm_name,
+      aws_cloudwatch_metric_alarm.high_5xx_rate.alarm_name,
+      aws_cloudwatch_metric_alarm.db_connections_high.alarm_name,
+    ],
+    var.enable_sqs ? [
+      aws_cloudwatch_metric_alarm.sqs_backlog_high[0].alarm_name,
+      aws_cloudwatch_metric_alarm.sqs_oldest_message_high[0].alarm_name,
+      aws_cloudwatch_metric_alarm.sqs_dlq_not_empty[0].alarm_name,
+    ] : []
+  )
 }
