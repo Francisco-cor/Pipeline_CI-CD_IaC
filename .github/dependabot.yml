@@ -1,6 +1,13 @@
 # SPDX-License-Identifier: MIT
 version: 2
 updates:
+  # Root workspace — release toolchain and shared packages
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly, day: monday, time: '06:00' }
+    labels: [deps, npm]
+    open-pull-requests-limit: 10
+
   # npm — Node services + migrations
   - package-ecosystem: npm
     directory: /services/productos

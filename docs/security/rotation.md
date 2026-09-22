@@ -94,7 +94,7 @@ aws ssm get-parameter --name /erp/prod/db-url --with-decryption --query Paramete
 ## 4. ECR Image Scanning + npm audit (Fase 8.7)
 
 - `pipeline.yml:182` `trivy fs` + `trivy-image` + `npm audit` (ver `pipeline.yml:150` `audit` job) fallan si `HIGH`/`CRITICAL` sin fix.
-- Rotación de base image (`node:20-alpine`) via `renovate.json:1` + `dependabot.yml:1` weekly.
+- Rotación de base image (`node:24-alpine`) via `renovate.json:1` + `dependabot.yml:1` weekly.
 
 ---
 

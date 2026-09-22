@@ -4,7 +4,7 @@
 
 ## Requisitos
 
-- Node 20 (`.nvmrc:1`, `.tool-versions:1`)
+- Node 24 (`.nvmrc:1`, `.tool-versions:1`)
 - Docker Engine + compose v2
 - `npm install` en root (workspaces)
 
