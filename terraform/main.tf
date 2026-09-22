@@ -77,6 +77,21 @@ resource "terraform_data" "configuration_guard" {
     }
 
     precondition {
+      condition     = !local.is_prod || var.enable_nat_gateway
+      error_message = "production requires enable_nat_gateway=true so ECS and RDS run in private subnets."
+    }
+
+    precondition {
+      condition     = !local.is_prod || var.enable_alb
+      error_message = "production requires enable_alb=true when ECS tasks are private."
+    }
+
+    precondition {
+      condition     = !local.is_prod || var.acm_certificate_arn != ""
+      error_message = "production requires acm_certificate_arn for the HTTPS ALB listener."
+    }
+
+    precondition {
       condition     = var.autoscaling_min_capacity >= 1 && var.autoscaling_max_capacity >= var.autoscaling_min_capacity
       error_message = "autoscaling capacities must satisfy 1 <= min_capacity <= max_capacity."
     }
@@ -120,10 +135,9 @@ module "database" {
   # Security group from networking module controls inbound access
   sg_db_id = module.networking.sg_db_id
 
-  # RDS is placed in the same subnets as ECS tasks.
-  # sg_db ensures RDS is NOT reachable from the internet despite
-  # being in a public subnet (see ADR-001).
-  subnet_ids                          = module.networking.public_subnet_ids
+  # RDS follows the production isolation boundary: private subnets when NAT
+  # is enabled, public subnets only for the explicit FinOps dev/staging mode.
+  subnet_ids                          = var.enable_nat_gateway ? module.networking.private_subnet_ids : module.networking.public_subnet_ids
   enable_deletion_protection          = local.effective_deletion_protection
   performance_insights_retention_days = var.performance_insights_retention_days
   performance_insights_kms_key_id     = var.performance_insights_kms_key_id
@@ -171,10 +185,8 @@ module "compute" {
   # as environment variable at container startup (no secrets in task def JSON)
   db_secret_arn = module.secrets.db_secret_arn
 
-  # Networking — ECS tasks run in public subnets with public IPs (see ADR-001)
-  # Fase 7.3: cuando enable_nat_gateway=true, ECS puede correr en private subnets;
-  # por defecto sigue en public (FinOps). Fase 7.6: service discovery necesita vpc_id.
-  # Fase 10: cuando enable_alb=true, ECS usa private subnets si existen (fallback public)
+  # Networking — dev/staging may use public subnets for FinOps; production
+  # guards require private subnets behind an ALB with no public task IP.
   subnet_ids       = var.enable_nat_gateway ? module.networking.private_subnet_ids : module.networking.public_subnet_ids
   sg_app_id        = module.networking.sg_app_id
   vpc_id           = module.networking.vpc_id

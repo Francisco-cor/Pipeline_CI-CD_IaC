@@ -25,7 +25,7 @@ variable "availability_zones" {
 }
 
 variable "enable_nat_gateway" {
-  description = "Fase 7.3 — toggle NAT Gateway + private subnets. False mantiene FinOps $0 (solo public). True crea private subnets + NAT + EIP para futura migración a private ECS + ALB (Fase 10). Coste ~$32/mes si true."
+  description = "Fase 7.3 — toggle private subnets + one NAT Gateway/EIP per AZ. False mantiene FinOps $0 (solo public). True is the production network boundary for private ECS/RDS."
   type        = bool
   default     = false
 }

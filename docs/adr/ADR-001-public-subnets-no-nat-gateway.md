@@ -36,7 +36,7 @@ In a private-subnet architecture, this outbound traffic is routed through a NAT 
 
 ## Decision
 
-Use **public subnets** for ECS Fargate tasks with `map_public_ip_on_launch = true`. Security is enforced exclusively at the Security Group level rather than at the network topology level.
+Use **public subnets** for the explicit dev/staging FinOps mode only, with `map_public_ip_on_launch = true`. Production uses the implemented private-subnet path (`enable_nat_gateway=true`, NAT per AZ, ALB/ACM) and Terraform guards reject the public topology.
 
 ### Security Architecture
 
@@ -105,13 +105,13 @@ This is an explicit **FinOps decision** for a portfolio/development environment:
 
 > We accept reduced network security posture (public IPs on ECS tasks, no private subnet isolation) in exchange for $0 fixed networking costs. Security is maintained through security group rules. This trade-off is appropriate for a non-production, zero-revenue portfolio project and would not be acceptable for any system handling sensitive user data or production traffic.
 
-**This architecture must be revisited before any production use.** The migration path is:
+The production migration path is represented in Terraform and must still be applied and verified in staging before production:
 
 1. Create private subnets
 2. Add a NAT Gateway (or VPC endpoints for ECR/Secrets Manager/CloudWatch)
 3. Migrate ECS tasks to private subnets
 4. Add an Application Load Balancer
-5. Remove the nginx sidecar (replace with ALB target group)
+5. Keep the nginx sidecar as the ALB target until a separate edge migration is approved
 
 ## Alternatives Considered
 

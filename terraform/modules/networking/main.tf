@@ -105,7 +105,7 @@ resource "aws_route_table_association" "public" {
 # -----------------------------------------------------------------------------
 # Private subnets + NAT Gateway (Fase 7.3 — optional, FinOps $0 by default)
 #
-# When enable_nat_gateway=false (default dev): no private subnets, no NAT,
+# When enable_nat_gateway=false (default dev/staging): no private subnets, no NAT,
 # no extra cost. VPC sigue siendo 100% public con SG como perímetro (ADR-001).
 # When true: crea private subnets (10.0.10.0/24, 10.0.11.0/24) + EIP + NAT GW
 # en la primera AZ + route table privada 0.0.0.0/0 → NAT. Preparación para
@@ -128,39 +128,39 @@ resource "aws_subnet" "private" {
 }
 
 resource "aws_eip" "nat" {
-  count  = var.enable_nat_gateway ? 1 : 0
-  domain = "vpc"
+  for_each = var.enable_nat_gateway ? { for az in var.availability_zones : az => az } : {}
+  domain   = "vpc"
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-nat-eip"
+    Name = "${var.project_name}-${var.environment}-${each.key}-nat-eip"
   }
 
   depends_on = [aws_internet_gateway.main]
 }
 
 resource "aws_nat_gateway" "main" {
-  count         = var.enable_nat_gateway ? 1 : 0
-  allocation_id = aws_eip.nat[0].id
-  subnet_id     = aws_subnet.public[var.availability_zones[0]].id
+  for_each      = var.enable_nat_gateway ? { for az in var.availability_zones : az => az } : {}
+  allocation_id = aws_eip.nat[each.key].id
+  subnet_id     = aws_subnet.public[each.key].id
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-nat"
+    Name = "${var.project_name}-${var.environment}-${each.key}-nat"
   }
 
   depends_on = [aws_internet_gateway.main]
 }
 
 resource "aws_route_table" "private" {
-  count  = var.enable_nat_gateway ? 1 : 0
-  vpc_id = aws_vpc.main.id
+  for_each = var.enable_nat_gateway ? { for az in var.availability_zones : az => az } : {}
+  vpc_id   = aws_vpc.main.id
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[0].id
+    nat_gateway_id = aws_nat_gateway.main[each.key].id
   }
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-private-rt"
+    Name = "${var.project_name}-${var.environment}-${each.key}-private-rt"
   }
 }
 
@@ -168,7 +168,7 @@ resource "aws_route_table_association" "private" {
   for_each = var.enable_nat_gateway ? aws_subnet.private : {}
 
   subnet_id      = each.value.id
-  route_table_id = aws_route_table.private[0].id
+  route_table_id = aws_route_table.private[each.key].id
 }
 
 # -----------------------------------------------------------------------------
@@ -185,20 +185,28 @@ resource "aws_security_group" "sg_app" {
   description = "App tier: allows HTTP/HTTPS inbound; all outbound for AWS API calls and ECR pulls."
   vpc_id      = aws_vpc.main.id
 
-  ingress {
-    description = "HTTP from internet"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  # Public ingress is only used by the explicit FinOps public-subnet mode.
+  # With NAT/private subnets, compute adds the ALB security-group rule.
+  dynamic "ingress" {
+    for_each = var.enable_nat_gateway ? [] : [1]
+    content {
+      description = "HTTP from internet"
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
-  ingress {
-    description = "HTTPS from internet"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = var.enable_nat_gateway ? [] : [1]
+    content {
+      description = "HTTPS from internet"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   # Allow all outbound traffic so ECS can reach:

@@ -23,12 +23,11 @@ output "sg_db_id" {
 }
 
 output "private_subnet_ids" {
-  description = "Fase 7.3 — IDs de private subnets (empty list cuando enable_nat_gateway=false). Futuro: ECS en private + NAT para Fase 10."
+  description = "Fase 7.3 — IDs of private subnets (empty when enable_nat_gateway=false). Production ECS and RDS use these IDs."
   value       = var.enable_nat_gateway ? [for s in aws_subnet.private : s.id] : []
 }
 
 output "nat_gateway_id" {
   description = "ID del NAT Gateway si enable_nat_gateway=true, null si false."
-  value       = var.enable_nat_gateway ? aws_nat_gateway.main[0].id : null
+  value       = var.enable_nat_gateway ? aws_nat_gateway.main[var.availability_zones[0]].id : null
 }
-

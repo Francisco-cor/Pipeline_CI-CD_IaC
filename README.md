@@ -78,8 +78,8 @@ graph TB
     D --> Task
 ```
 
-**Traffic Flow:** Internet → ECS Public IP :80 → NGINX → Microservices on `localhost`.
-_(No ALB or NAT Gateway — See [ADR-001](docs/adr/ADR-001-public-subnets-no-nat-gateway.md))_
+**Traffic Flow:** Dev/staging FinOps mode uses Internet → ECS public IP :80 → NGINX; production uses Internet → ALB (ACM) → ECS private IP :80 → NGINX. RDS follows ECS into private subnets in production.
+See [ADR-001](docs/adr/ADR-001-public-subnets-no-nat-gateway.md) for the non-production cost trade-off.
 
 ### Infrastructure Status
 
@@ -93,7 +93,7 @@ The following screenshot confirms the ECS Fargate task running correctly in the 
 
 - **Zero-Trust Identity:** OIDC GitHub→AWS (`terraform/cicd.tf:17-65` `ADR-002`) — `prod` least-privilege `sub=ref:refs/heads/main` only, `dev` allows `pull_request` (`cicd.tf:56` Fase 8.5); thumbprint via `data.tls_certificate` auto-rotation (`docs/security/rotation.md:1`).
 - **Runtime Secrets:** SSM `SecureString` `/erp/*/db-url` (`secrets/main.tf:23`) + IAM `GetParameter/GetParameters` + `kms:Decrypt ViaService ssm` (`secrets/main.tf:73` Fase 8.1) + rotation runbook (`docs/security/rotation.md:40`).
-- **VPC Isolation:** SG `sg_db` solo `sg_app→5432` (`networking/main.tf:163`), public subnets FinOps `enable_nat_gateway=false` (Fase 7.3), WAF toggle doc `ADR-003` cuando `enable_alb=true` (Fase 8.8).
+- **VPC Isolation:** SG `sg_db` solo `sg_app→5432` (`networking/main.tf:163`); dev/staging may use public subnets for FinOps, while production guards require private ECS/RDS subnets, NAT per AZ and ALB/ACM (`enable_nat_gateway=true`, `enable_alb=true`).
 - **SSL/TLS:** RDS `rejectUnauthorized:true` en prod con CA bundle `certs/rds-ca-bundle.pem` montado en `/app/certs` (`packages/shared/src/db.js:18` + `migrations/run.js:15` Fase 8.2) — `download: curl https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem`.
 - **App Defense:** `helmet` + `cors` + `compression` + `express-rate-limit 100/min` + `trust proxy 1` (`packages/shared/src/middleware.js:20` + `services/*/src/index.js:14` Fase 8.3) + NGINX `limit_req_zone 30r/s burst 60 429` (`nginx.conf:14` Fase 8.4) + headers `X-Content-Type-Options/CSP/HSTS/Permissions-Policy` (`nginx.conf:36`).
 - **Supply Chain:** `gitleaks` + `trivy fs/image` (`pipeline.yml:216` Fase 6.3) + `npm audit --omit=dev --audit-level=high` + `checkov/tflint` 0 high (`terraform/.tflint.hcl:1`). Los escaneos HIGH/CRITICAL son gates bloqueantes.
@@ -102,7 +102,7 @@ The following screenshot confirms the ECS Fargate task running correctly in the 
 
 ## FinOps: $0 Cost Strategy
 
-Optimized the infrastructure to run enterprise-grade services with a fixed cost of **$0 USD**.
+Optimized the dev/staging infrastructure to run the services with a fixed networking cost of **$0 USD**; production intentionally pays for NAT/ALB isolation.
 
 | Technical Decision      | Monthly Savings | Traditional Alternative         |
 | :---------------------- | :-------------- | :------------------------------ |
@@ -170,7 +170,7 @@ FinOps **$0 dev** (toggles false) → Prod toggle sin reescribir — ver `docs/a
 - **Decoupling:** `ordenes → productos` via HTTP `PRODUCTOS_URL` (`http://productos.erp.local:3001` con Cloud Map `erp.local` o `http://productos:3001` en compose) + `CircuitBreaker` (`circuitBreaker.js:1` `CLOSED→OPEN→HALF_OPEN` failureThreshold 5) + fallback `SELECT 1` DB + `GET /productos/:id` (`productos.js:40`). `GET /ordenes/_circuit` stats solo dev.
 - **Stock TX:** `POST /stock` `BEGIN; SELECT … FOR UPDATE; INSERT movimientos; COMMIT` (`stock.js:42`) + trigger `005_stock_invariant.sql:6` `409 STOCK_CONFLICT` si `stock insuficiente` + invalida cache.
 - **Cache:** `GET /productos?cache` `ioredis` `REDIS_URL=redis://redis:6379` (`cache.js:1` memory fallback) + `X-Cache HIT/MISS` header (`productos.js:15` `CACHE_TTL=30` + `del productos:list:*`). `docker-compose.yml:9` `redis:7-alpine` healthcheck; `cache.tf:1` ElastiCache `cache.t3.micro` toggle `enable_redis` (~$12/mes).
-- **Queue:** `POST /ordenes` → `publishOrdenCreada` (`queue.js:1` `@aws-sdk/client-sqs` si `SQS_QUEUE_URL` else `queue_publish_noop`) + `sqs.tf:1` `ordenes` + DLQ toggle `enable_sqs` ($0.40/M). `POLL_SQS=true` expone el polling, pero el consumidor no se inicia automáticamente todavía.
+- **Queue:** `POST /ordenes` y `POST /stock` escriben dominio + `outbox_events` en una misma transacción (`packages/shared/src/outbox.js`); el relay publica a SQS con reintentos y DLQ, y stock consume con `inbox_events` para deduplicar antes de borrar el mensaje. `enable_sqs` activa la cola/DLQ ($0.40/M); sin `SQS_QUEUE_URL` el outbox queda persistido pero no se intenta conectar a AWS.
 - **ALB:** toggle `enable_alb` (`compute/main.tf:320` `aws_lb` + `target_group` `ip:80 /health` + `listener 80/443 ACM`) + SG `sg_alb` + `dynamic load_balancer nginx:80` (`main.tf:241`) — dev `false` ($0 nginx sidecar), prod `true` (~$16/mes) requiere `enable_nat_gateway=true` (private subnets).
 - **Autoscaling:** toggle `enable_autoscaling` (`compute/main.tf:296` `aws_appautoscaling_target 1-4` + `policy cpu 70%` + `memory 80%` + `desired_count = min`). Prod `min 2` HA.
 - **Chaos:** `scripts/chaos.sh:1` kill-productos (circuit fallback 404), cache HIT→MISS, stock 409 + `scripts/k6/resilience.js:1` 50 rps p95<300ms p99<500ms fail<1%.
@@ -229,7 +229,7 @@ curl "http://localhost:80/api/v1/bff/ordenes/1" | jq
 
 ## Quick Start (Local Dev) — Fase 2: compose + monorepo
 
-Prerrequisitos: Node 20 (`.nvmrc:1`), Docker + compose v2.
+Prerrequisitos: Node 24 (`.nvmrc:1`), Docker + compose v2.
 
 ```bash
 git clone <repo> && cd Pipeline_CI-CD_IaC
@@ -265,10 +265,10 @@ terraform -chdir=terraform plan -var-file=environments/prod.tfvars
 # Ver diff sin tocar dev: plan prod no debe afectar dev (Fase 7 métrica)
 
 # Toggles (Fase 7.3/7.6 + 10) en tfvars — default FinOps, prod toggle documentado:
-#   enable_nat_gateway=false         # → true crea private subnets + NAT (~$32/mes) + EIP
+#   enable_nat_gateway=false         # dev/staging only; prod=true creates private subnets + NAT per AZ
 #   enable_service_discovery=false   # → true crea Cloud Map erp.local (productos.erp.local:3001)
 #   ecr_image_retention_count=5      # → 5 imágenes para rollback (Fase 7.5) vs 1 peligroso
-#   enable_alb=false                 # → true crea ALB + TG + listener (~$16/mes) Fase 10.4
+#   enable_alb=false                 # dev/staging only; prod=true creates ALB + TG + ACM listener
 #   enable_autoscaling=false         # → true CPU 70% scale 1-4 Fase 10.3
 #   enable_redis=false               # → true ElastiCache t3.micro (~$12/mes) Fase 10.5
 #   enable_sqs=false                 # → true SQS ordenes+DLQ ($0.40/M) Fase 10.6

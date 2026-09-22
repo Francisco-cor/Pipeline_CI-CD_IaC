@@ -34,12 +34,12 @@ variable "app_port" {
 }
 
 variable "subnet_ids" {
-  description = "List of subnet IDs where ECS tasks will run. These are public subnets (see ADR-001)."
+  description = "List of subnet IDs where ECS tasks will run. Production passes private subnets; dev/staging may use public subnets."
   type        = list(string)
 }
 
 variable "sg_app_id" {
-  description = "ID of the security group to attach to ECS tasks. Should allow inbound 80/443 and all outbound."
+  description = "ID of the security group to attach to ECS tasks. Public ingress is limited to FinOps mode; production receives port 80 from the ALB SG."
   type        = string
 }
 

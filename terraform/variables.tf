@@ -63,7 +63,7 @@ variable "alert_email" {
 # -----------------------------------------------------------------------------
 
 variable "enable_nat_gateway" {
-  description = "Create NAT Gateway + private subnets for prod-grade isolation. False keeps FinOps $0 (public subnets only, ADR-001). Toggle true when enable_alb=true (Fase 10)."
+  description = "Create private subnets and one NAT Gateway/EIP per AZ for production isolation. False is the explicit dev/staging FinOps mode (public subnets, ADR-001)."
   type        = bool
   default     = false
 }

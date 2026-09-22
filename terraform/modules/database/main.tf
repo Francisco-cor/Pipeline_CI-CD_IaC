@@ -3,7 +3,7 @@
 #
 # Creates:
 #   1. random_password     — secure RDS master password (never in tfvars)
-#   2. aws_db_subnet_group — RDS subnet group spanning both public subnets
+#   2. aws_db_subnet_group — RDS subnet group spanning both selected subnets
 #   3. aws_db_instance     — RDS PostgreSQL 15.4 (db.t3.micro, free tier)
 #
 # Cost decisions:
@@ -12,8 +12,8 @@
 #   - deletion_protection = false → allows terraform destroy in dev
 #
 # Security note:
-#   RDS is placed in public subnets (as per ADR-001) but sg_db blocks all
-#   inbound traffic except from sg_app. NOT reachable from the public internet.
+#   RDS uses private subnets in production and may use public subnets only in
+#   the explicit FinOps dev/staging mode. sg_db always blocks public ingress.
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
@@ -36,12 +36,12 @@ resource "random_password" "db_password" {
 # DB Subnet Group
 #
 # RDS requires a subnet group even for single-AZ deployments. We provide both
-# public subnets so that a future upgrade to multi_az = true works without
+# selected subnets so that a future upgrade to multi_az = true works without
 # infrastructure changes.
 # -----------------------------------------------------------------------------
 resource "aws_db_subnet_group" "main" {
   name        = "${var.project_name}-${var.environment}-db-subnet-group"
-  description = "RDS subnet group for ${var.project_name} ${var.environment}. Spans both public subnets; internet access blocked by sg_db."
+  description = "RDS subnet group for ${var.project_name} ${var.environment}. Internet access blocked by sg_db."
   subnet_ids  = var.subnet_ids
 
   tags = {
