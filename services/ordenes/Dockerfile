@@ -1,4 +1,4 @@
-FROM node:24-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json ./packages/shared/package.json
@@ -10,7 +10,7 @@ COPY packages/shared/src ./packages/shared/src
 COPY services/ordenes/src ./services/ordenes/src
 RUN npm ci --ignore-scripts
 
-FROM node:24-alpine AS runtime
+FROM node:25-alpine AS runtime
 WORKDIR /app
 
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
