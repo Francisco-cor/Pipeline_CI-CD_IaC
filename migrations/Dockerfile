@@ -1,4 +1,4 @@
-FROM node:24-alpine
+FROM node:25-alpine
 WORKDIR /app
 
 # Run as non-root user — security best practice even for init containers.
