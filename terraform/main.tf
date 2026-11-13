@@ -53,9 +53,11 @@ locals {
   effective_deletion_protection = var.enable_deletion_protection != null ? var.enable_deletion_protection : local.is_prod
   sqs_queue_url                 = var.enable_sqs ? try(aws_sqs_queue.ordenes[0].url, "") : ""
   sqs_queue_arn                 = var.enable_sqs ? try(aws_sqs_queue.ordenes[0].arn, "") : ""
-  redis_endpoint                = var.enable_redis ? try(aws_elasticache_replication_group.redis[0].primary_endpoint_address, "") : ""
-  redis_url                     = var.enable_redis && local.redis_endpoint != "" ? "rediss://:${one(random_password.redis_auth[*].result)}@${local.redis_endpoint}:6379" : ""
-  redis_secret_arn              = var.enable_redis ? try(aws_ssm_parameter.redis_url[0].arn, "") : ""
+  # Never render the AUTH token into an environment variable: when Redis is
+  # enabled the rediss:// URL is injected from SSM (redis_secret_arn). Keeping
+  # this empty also avoids leaking the token in plan output.
+  redis_url        = ""
+  redis_secret_arn = var.enable_redis ? try(aws_ssm_parameter.redis_url[0].arn, "") : ""
 }
 
 # JWT signing secret for the platform-issued tokens. Generated once and stored
