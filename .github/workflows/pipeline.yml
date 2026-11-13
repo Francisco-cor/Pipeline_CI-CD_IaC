@@ -845,3 +845,44 @@ jobs:
           echo "## Deploy — ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- cluster: ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-cluster" >> $GITHUB_STEP_SUMMARY
           echo "- image: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Job 6: Aggregate required check.
+  # Branch protection should require only this job: adding a new job to the
+  # pipeline does not require editing the protection rule, and a failed or
+  # cancelled dependency cannot be masked by the others. `skipped` is fine
+  # (e.g. deploy never runs on PRs, build is skipped when nothing changed).
+  # ---------------------------------------------------------------------------
+  ci-required:
+    name: CI required
+    needs:
+      - changes
+      - lint
+      - format
+      - migrations-build
+      - audit
+      - gitleaks
+      - trivy-fs
+      - test
+      - e2e
+      - terraform
+      - build
+      - trivy-image
+      - deploy
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check dependency results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          failures=$(echo "$NEEDS" | jq -r \
+            'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | "\(.key)=\(.value.result)"')
+          if [ -n "$failures" ]; then
+            echo "Required jobs failed or were cancelled:" >&2
+            echo "$failures" >&2
+            exit 1
+          fi
+          echo "All required jobs passed or were skipped."
