@@ -50,6 +50,9 @@ check "/api/v1/productos/health" 200
 check "/api/v1/ordenes/health" 200
 check "/api/v1/stock/health" 200
 check "/api/v1/productos/health/live" 200
+check "/api/v1/productos/health/ready" 200
+check "/api/v1/ordenes/health/live" 200
+check "/api/v1/stock/health/ready" 200
 
 # 2. Productos CRUD + pagination
 echo "--- productos ---"
@@ -75,6 +78,23 @@ BAD=$(curl -s -o /tmp/b -w "%{http_code}" -X POST "$BASE_URL/api/v1/ordenes" -H 
 [ "$BAD" = "404" ] && pass "FK 404" || fail "FK should 404 got $BAD"
 OK=$(curl -s -X POST "$BASE_URL/api/v1/ordenes" -H "Content-Type: application/json" -d "{\"producto_id\":$ID,\"cantidad\":2,\"total\":25}")
 echo "$OK" | jq -e '.data.id' >/dev/null && pass "POST orden" || fail "POST orden"
+ORDEN_ID=$(echo "$OK" | jq -r '.data.id')
+# Server ignores the client total and computes precio * cantidad.
+echo "$OK" | jq -e '.data.total == "25.00" or .data.total == 25' >/dev/null \
+  && pass "orden total computed on server" || fail "orden total not server-computed: $(echo "$OK" | head -c 160)"
+echo "$OK" | jq -e '.data.estado == "procesada"' >/dev/null \
+  && pass "orden estado=procesada" || fail "orden was not marked procesada"
+
+# BFF aggregation through the gateway
+check "/api/v1/bff/ordenes/$ORDEN_ID?include=producto" 200
+check_json "/api/v1/bff/ordenes/$ORDEN_ID?include=producto" '.data.id and .producto.id'
+
+# Malformed JSON must be a 400 VALIDATION_ERROR, never a 500.
+MALFORMED_CODE=$(curl -s -o /tmp/e2e_bad_json -w "%{http_code}" -X POST "$BASE_URL/api/v1/productos" \
+  -H "Content-Type: application/json" -d '{"nombre":')
+[ "$MALFORMED_CODE" = "400" ] && pass "malformed JSON 400" || fail "malformed JSON expected 400 got $MALFORMED_CODE"
+jq -e '.error.code == "VALIDATION_ERROR"' /tmp/e2e_bad_json >/dev/null \
+  && pass "malformed JSON error code" || fail "malformed JSON error code: $(cat /tmp/e2e_bad_json | head -c 160)"
 
 # 4. Stock
 echo "--- stock ---"
@@ -83,6 +103,13 @@ STOCK=$(curl -s -X POST "$BASE_URL/api/v1/stock" -H "Content-Type: application/j
 echo "$STOCK" | jq -e '.data.id' >/dev/null && pass "POST stock entrada" || fail "POST stock"
 BAD_TIPO=$(curl -s -o /tmp/b -w "%{http_code}" -X POST "$BASE_URL/api/v1/stock" -H "Content-Type: application/json" -d "{\"producto_id\":$ID,\"cantidad\":1,\"tipo\":\"bad\"}")
 [ "$BAD_TIPO" = "400" ] && pass "tipo enum 400" || fail "tipo should 400 got $BAD_TIPO"
+
+# Oversell: salida greater than available stock must be 409 STOCK_CONFLICT.
+OVERSELL=$(curl -s -o /tmp/e2e_oversell -w "%{http_code}" -X POST "$BASE_URL/api/v1/stock" \
+  -H "Content-Type: application/json" -d "{\"producto_id\":$ID,\"cantidad\":100,\"tipo\":\"salida\"}")
+[ "$OVERSELL" = "409" ] && pass "oversell 409" || fail "oversell expected 409 got $OVERSELL"
+jq -e '.error.code == "STOCK_CONFLICT"' /tmp/e2e_oversell >/dev/null \
+  && pass "oversell STOCK_CONFLICT code" || fail "oversell code: $(cat /tmp/e2e_oversell | head -c 160)"
 
 # 5. Security headers & requestId
 echo "--- security ---"
