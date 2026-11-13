@@ -8,6 +8,13 @@ name: release
 on:
   push:
     branches: [main]
+    # docs/chore commits cannot produce a semantic-release version, and
+    # workflow edits do not ship code. Skipping them avoids a full install
+    # + lint + semantic-release run on every housekeeping push.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.github/**'
   workflow_dispatch:
 
 permissions:
@@ -22,6 +29,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
