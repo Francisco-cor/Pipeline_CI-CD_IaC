@@ -64,14 +64,9 @@ function initTracing(serviceName) {
     });
 
     sdk.start();
-    // Graceful shutdown
-    process.on('SIGTERM', () => {
-      sdk
-        .shutdown()
-        .then(() => {})
-        .catch(() => {})
-        .finally(() => process.exit(0));
-    });
+    // Shutdown is coordinated by createLifecycle(), which calls
+    // shutdownTracing() as one of its hooks. Installing another SIGTERM
+    // listener here would race with the HTTP/pool shutdown and force exit.
 
     // Log correlation — opcional, OTel inyecta traceId en contexto
     // No usamos console.log para no spamear; el logger ya incluye requestId

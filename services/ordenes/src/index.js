@@ -1,12 +1,14 @@
 'use strict';
 
 const {
+  createLifecycle,
   errorHandler,
   initTracing,
   metricsHandler,
   metricsMiddleware,
   notFoundHandler,
   securityMiddleware,
+  shutdownTracing,
 } = require('@erp/shared');
 const express = require('express');
 
@@ -70,10 +72,12 @@ if (require.main === module) {
     logger.info('svc-ordenes listening', { port: PORT });
   });
 
-  process.on('SIGTERM', () => {
-    logger.info('SIGTERM received, closing server');
-    server.close(() => {
-      pool.end(() => process.exit(0));
-    });
+  const lifecycle = createLifecycle({
+    service: 'svc-ordenes',
+    logger,
+    server,
+    pool,
+    onShutdown: [() => shutdownTracing()],
   });
+  lifecycle.install();
 }

@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  createLifecycle,
   errorHandler,
   initTracing,
   metricsHandler,
@@ -8,6 +9,7 @@ const {
   notFoundHandler,
   queue,
   securityMiddleware,
+  shutdownTracing,
 } = require('@erp/shared');
 const express = require('express');
 
@@ -73,12 +75,16 @@ if (require.main === module) {
     logger.info('svc-stock listening', { port: PORT });
   });
 
-  process.on('SIGTERM', () => {
-    logger.info('SIGTERM received, closing server');
-    outboxRelay?.stop();
-    queueConsumer?.stop();
-    server.close(() => {
-      pool.end(() => process.exit(0));
-    });
+  const lifecycle = createLifecycle({
+    service: 'svc-stock',
+    logger,
+    server,
+    pool,
+    onShutdown: [
+      () => outboxRelay?.stop?.(),
+      () => queueConsumer?.stop?.(),
+      () => shutdownTracing(),
+    ],
   });
+  lifecycle.install();
 }
