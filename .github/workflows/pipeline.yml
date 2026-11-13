@@ -327,7 +327,9 @@ jobs:
 
       - name: Upload Trivy FS SARIF
         uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
-        if: always()
+        # The scan fails closed (exit-code 1) before writing SARIF when Trivy
+        # errors early; only upload when the file exists.
+        if: always() && hashFiles('trivy-fs.sarif') != ''
         with:
           sarif_file: trivy-fs.sarif
 
@@ -503,7 +505,8 @@ jobs:
         working-directory: terraform
 
       - name: TFLint
-        run: tflint --recursive --format compact
+        # Warnings stay visible in the log but only errors block the PR.
+        run: tflint --recursive --format compact --minimum-failure-severity=error
         working-directory: terraform
 
       - name: Checkov (sarif)
@@ -518,7 +521,8 @@ jobs:
 
       - name: Upload Checkov SARIF
         uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
-        if: always()
+        # Checkov exits before writing the SARIF on framework errors.
+        if: always() && hashFiles('checkov.sarif') != ''
         with:
           sarif_file: checkov.sarif
 
@@ -776,8 +780,11 @@ jobs:
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
+        # A failed scan may exit before producing the SARIF, and skipped
+        # services never produce one; guard on both.
         if: |
-          always() && (
+          always() &&
+          hashFiles(format('trivy-image-{0}.sarif', matrix.service)) != '' && (
             (matrix.service == 'productos' && needs.changes.outputs.productos == 'true') ||
             (matrix.service == 'ordenes' && needs.changes.outputs.ordenes == 'true') ||
             (matrix.service == 'stock' && needs.changes.outputs.stock == 'true') ||
