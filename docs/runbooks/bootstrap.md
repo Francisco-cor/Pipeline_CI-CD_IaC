@@ -25,9 +25,9 @@ para cortar los runs fallidos diarios hasta reparar la identidad.
 ./scripts/bootstrap-backend.sh erp-pipeline dev us-east-2
 
 # 2) Aplicar la identidad
+#    backend-bootstrap-<env>.hcl ya fija key = "bootstrap.tfstate".
 cd terraform/bootstrap
-terraform init -backend-config=../environments/backend-dev.hcl \
-  -backend-config="key=bootstrap.tfstate"
+terraform init -backend-config=../environments/backend-bootstrap-dev.hcl
 terraform plan
 terraform apply
 terraform output github_actions_role_arn
@@ -45,6 +45,14 @@ El stack de aplicación tiene bloques `removed { lifecycle { destroy = false } }
 en `terraform/removed.tf`: al aplicar, Terraform **olvida** los recursos sin
 borrarlos de AWS. Después se importan al stack de bootstrap.
 
+Los backends de bootstrap viven en
+`terraform/environments/backend-bootstrap-<env>.hcl` y ya incluyen
+`key = "bootstrap.tfstate"`. Si un checkout viejo inicializó el backend con
+`backend-<env>.hcl` + `-backend-config="key=bootstrap.tfstate"` manual, la
+configuración resultante es la misma; para dejar de pasar la key a mano
+ejecutá `terraform init -reconfigure -backend-config=../environments/backend-bootstrap-<env>.hcl`.
+Si además cambiás de bucket, usá `-migrate-state` en lugar de `-reconfigure`.
+
 ```bash
 # 1) Olvidar la identidad en el stack de aplicación (no la destruye)
 cd terraform
@@ -53,8 +61,7 @@ terraform apply        # removed.tf => destroy=false, no toca AWS
 
 # 2) Importar en bootstrap
 cd bootstrap
-terraform init -backend-config=../environments/backend-dev.hcl \
-  -backend-config="key=bootstrap.tfstate"
+terraform init -backend-config=../environments/backend-bootstrap-dev.hcl
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
@@ -120,5 +127,11 @@ gh variable delete AUTO_CLEANUP_ENABLED
   admite un `AWS_ROLE_ARN`.
 - No agregar el provider/rol de vuelta a `terraform/cicd.tf`: volvería a
   quedar dentro del destroy.
+- El provider, el rol y su policy tienen `lifecycle { prevent_destroy = true }`
+  en `terraform/bootstrap/cicd.tf`; borrarlos requiere quitarlo a mano primero.
+- El trust OIDC acepta `ref:refs/heads/main` y los subjects
+  `environment:terraform-{dev,staging,prod}` / `environment:destroy` que GitHub
+  emite para jobs con `environment:`. Sin estos últimos, el plan confiable y el
+  teardown no pueden asumir el rol.
 - El job `Terraform checks` valida `terraform/bootstrap` en cada PR sin
   backend ni credenciales.
