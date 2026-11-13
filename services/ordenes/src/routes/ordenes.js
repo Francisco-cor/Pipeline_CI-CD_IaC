@@ -3,11 +3,16 @@
 const {
   AppError,
   CircuitBreaker,
+  ROLE_READERS,
+  ROLE_WRITERS,
   cache,
   enqueueOrdenCreada,
   enqueueStockActualizado,
   idempotency,
+  authenticate,
   parsePagination,
+  requireDiagnostics,
+  requireRole,
   setPaginationHeaders,
   sortToOrderBy,
   validate,
@@ -49,7 +54,7 @@ function productosFetchUrl(productoId) {
   return `${base}/productos/${productoId}`;
 }
 
-async function fetchProductoHttp(productoId, requestId) {
+async function fetchProductoHttp(productoId, requestId, authorization) {
   const url = productosFetchUrl(productoId);
   if (!url) return null;
   const controller = new AbortController();
@@ -57,6 +62,8 @@ async function fetchProductoHttp(productoId, requestId) {
   try {
     const headers = { Accept: 'application/json' };
     if (requestId) headers['X-Request-Id'] = requestId;
+    // Propagate the caller identity so downstream RBAC sees the same user.
+    if (authorization) headers.Authorization = authorization;
     const res = await fetch(url, { signal: controller.signal, headers });
     if (res.status === 404) return { exists: false };
     if (!res.ok) throw new Error(`productos HTTP ${res.status}`);
@@ -71,21 +78,21 @@ async function fetchProductoHttp(productoId, requestId) {
 }
 
 const breaker = new CircuitBreaker(
-  (productoId, requestId) => fetchProductoHttp(productoId, requestId),
+  (productoId, requestId, authorization) => fetchProductoHttp(productoId, requestId, authorization),
   {
     failureThreshold: Number(process.env.CIRCUIT_FAILURE_THRESHOLD) || 5,
     timeout: Number(process.env.CIRCUIT_TIMEOUT_MS) || 10000,
   }
 );
 
-async function verifyProductoExists(productoId, requestId) {
+async function verifyProductoExists(productoId, requestId, authorization) {
   // Si no hay URL configurada, va directo a DB
   if (!PRODUCTOS_URL) {
     const { rowCount } = await pool.query('SELECT 1 FROM productos WHERE id = $1', [productoId]);
     return rowCount > 0;
   }
   try {
-    const result = await breaker.fire(productoId, requestId);
+    const result = await breaker.fire(productoId, requestId, authorization);
     if (result === null) {
       // breaker no ejecutó por falta de URL — fallback (ya manejado arriba)
       const { rowCount } = await pool.query('SELECT 1 FROM productos WHERE id = $1', [productoId]);
@@ -114,7 +121,7 @@ async function verifyProductoExists(productoId, requestId) {
 }
 
 // GET /ordenes — paginated
-router.get('/', async (req, res, next) => {
+router.get('/', authenticate, requireRole(...ROLE_READERS), async (req, res, next) => {
   try {
     const { page, limit, offset, sort } = parsePagination(req);
     const orderBy = sortToOrderBy(sort);
@@ -144,6 +151,8 @@ router.get('/', async (req, res, next) => {
 // SQS is disabled, the order still succeeds and the event stays in the outbox.
 router.post(
   '/',
+  authenticate,
+  requireRole(...ROLE_WRITERS),
   validate(ordenSchema),
   idempotency({ scope: 'ordenes:create', pool }),
   async (req, res, next) => {
@@ -153,7 +162,7 @@ router.post(
 
       // Fast existence check (HTTP with circuit breaker, or DB fallback). The
       // transaction below re-reads and locks the row, so this is not authoritative.
-      const exists = await verifyProductoExists(producto_id, req.id);
+      const exists = await verifyProductoExists(producto_id, req.id, req.headers.authorization);
       if (!exists) {
         throw new AppError(404, 'NOT_FOUND', `producto ${producto_id} not found`);
       }
@@ -220,14 +229,14 @@ router.post(
   }
 );
 
-// Debug: breaker stats (solo dev)
-router.get('/_circuit', (req, res) => {
+// Debug: breaker stats (diagnostics only; 404 in production)
+router.get('/_circuit', requireDiagnostics, (req, res) => {
   if (process.env.NODE_ENV === 'production') return res.status(404).json({ error: 'not found' });
   res.json(breaker.getStats());
 });
 
 // GET /ordenes/:id — single + BFF aggregation ?include=producto (Fase 11.1)
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', authenticate, requireRole(...ROLE_READERS), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
@@ -241,7 +250,7 @@ router.get('/:id', async (req, res, next) => {
     const include = String(req.query.include || '').toLowerCase();
     if (include === 'producto' || include === 'product' || include === 'true') {
       try {
-        const fetched = await breaker.fire(orden.producto_id, req.id);
+        const fetched = await breaker.fire(orden.producto_id, req.id, req.headers.authorization);
         // fetched = { exists, data } o null si no PRODUCTOS_URL
         if (fetched && fetched.exists) {
           return res.json({

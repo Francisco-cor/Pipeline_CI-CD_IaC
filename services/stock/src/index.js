@@ -1,6 +1,9 @@
 'use strict';
 
 const {
+  assertAuthConfig,
+  auditLog,
+  authenticate,
   createLifecycle,
   errorHandler,
   initTracing,
@@ -8,8 +11,10 @@ const {
   metricsMiddleware,
   notFoundHandler,
   queue,
+  requireDiagnostics,
   securityMiddleware,
   shutdownTracing,
+  trustProxyValue,
 } = require('@erp/shared');
 const express = require('express');
 
@@ -21,15 +26,17 @@ const logger = require('./logger');
 const healthRouter = require('./routes/health');
 const stockRouter = require('./routes/stock');
 
+assertAuthConfig();
+
 const app = express();
 const PORT = process.env.PORT || 3003;
 
-// Fase 8.3 — trust proxy para rate-limit detrás de NGINX
-app.set('trust proxy', 1);
+app.set('trust proxy', trustProxyValue());
 
 app.use(securityMiddleware());
 app.use(metricsMiddleware);
 app.use(express.json());
+app.use(auditLog({ pool, logger }));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -53,11 +60,11 @@ app.use('/health', healthRouter);
 app.use('/api/v1/health', healthRouter);
 app.use('/api/health', healthRouter);
 
-app.get('/metrics', metricsHandler);
+app.get('/metrics', requireDiagnostics, metricsHandler);
 
-app.use('/stock', stockRouter);
-app.use('/api/stock', stockRouter);
-app.use('/api/v1/stock', stockRouter);
+app.use('/stock', authenticate, stockRouter);
+app.use('/api/stock', authenticate, stockRouter);
+app.use('/api/v1/stock', authenticate, stockRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
