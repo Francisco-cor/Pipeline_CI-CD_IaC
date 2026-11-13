@@ -4,6 +4,7 @@ const {
   AppError,
   cache,
   enqueueStockActualizado,
+  idempotency,
   parsePagination,
   setPaginationHeaders,
   sortToOrderBy,
@@ -38,54 +39,60 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// POST /stock — zod + transacción de stock (Fase 10.2) + trigger sincroniza productos.stock
-router.post('/', validate(stockSchema), async (req, res, next) => {
-  const client = await pool.connect();
-  try {
-    const { producto_id, cantidad, tipo } = req.body;
-
-    await client.query('BEGIN');
-    // Bloquea producto y verifica existe; trigger 005 también valida stock insuficiente
-    const prod = await client.query('SELECT id, stock FROM productos WHERE id=$1 FOR UPDATE', [
-      producto_id,
-    ]);
-    if (prod.rows.length === 0) {
-      await client.query('ROLLBACK');
-      throw new AppError(404, 'NOT_FOUND', `producto ${producto_id} not found`);
-    }
-
-    // Inserta movimiento — trigger check_and_update_stock ajusta productos.stock automáticamente
-    const { rows } = await client.query(
-      'INSERT INTO movimientos_stock (producto_id, cantidad, tipo) VALUES ($1, $2, $3) RETURNING *',
-      [producto_id, cantidad, tipo]
-    );
-
-    const movimiento = rows[0];
-
-    // The movement and its event are committed atomically. SQS delivery is
-    // delegated to the durable outbox relay after this transaction commits.
-    await enqueueStockActualizado(client, movimiento);
-    await client.query('COMMIT');
-
-    // Invalida cache productos (stock cambió) — best effort
-    cache.del('productos:list:*').catch(() => {});
-    cache.del(`productos:id:${producto_id}`).catch(() => {});
-
-    res.status(201).json({ data: movimiento });
-  } catch (err) {
+// POST /stock — zod + transacción de stock (Fase 10.2) + trigger sincroniza productos.stock.
+// Idempotency-Key evita duplicar movimientos manuales en reintentos del cliente.
+router.post(
+  '/',
+  validate(stockSchema),
+  idempotency({ scope: 'stock:create', pool }),
+  async (req, res, next) => {
+    const client = await pool.connect();
     try {
-      await client.query('ROLLBACK');
-    } catch (_e) {
-      // ignore
+      const { producto_id, cantidad, tipo } = req.body;
+
+      await client.query('BEGIN');
+      // Bloquea producto y verifica existe; trigger 005 también valida stock insuficiente
+      const prod = await client.query('SELECT id, stock FROM productos WHERE id=$1 FOR UPDATE', [
+        producto_id,
+      ]);
+      if (prod.rows.length === 0) {
+        await client.query('ROLLBACK');
+        throw new AppError(404, 'NOT_FOUND', `producto ${producto_id} not found`);
+      }
+
+      // Inserta movimiento — trigger check_and_update_stock ajusta productos.stock automáticamente
+      const { rows } = await client.query(
+        'INSERT INTO movimientos_stock (producto_id, cantidad, tipo) VALUES ($1, $2, $3) RETURNING *',
+        [producto_id, cantidad, tipo]
+      );
+
+      const movimiento = rows[0];
+
+      // The movement and its event are committed atomically. SQS delivery is
+      // delegated to the durable outbox relay after this transaction commits.
+      await enqueueStockActualizado(client, movimiento);
+      await client.query('COMMIT');
+
+      // Invalida cache productos (stock cambió) — best effort
+      cache.del('productos:list:*').catch(() => {});
+      cache.del(`productos:id:${producto_id}`).catch(() => {});
+
+      res.status(201).json({ data: movimiento });
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (_e) {
+        // ignore
+      }
+      // Mapea trigger exception stock insuficiente → 409
+      if (err.message && err.message.includes('stock insuficiente')) {
+        return next(new AppError(409, 'STOCK_CONFLICT', err.message));
+      }
+      next(err);
+    } finally {
+      client.release();
     }
-    // Mapea trigger exception stock insuficiente → 409
-    if (err.message && err.message.includes('stock insuficiente')) {
-      return next(new AppError(409, 'STOCK_CONFLICT', err.message));
-    }
-    next(err);
-  } finally {
-    client.release();
   }
-});
+);
 
 module.exports = router;
