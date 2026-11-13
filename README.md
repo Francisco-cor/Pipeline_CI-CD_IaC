@@ -163,7 +163,7 @@ Logs, métricas, traces y health sin `ssh` — ver `docs/observability.md:1` y `
 - **Dashboard:** 6 widgets CPU/Mem/Error/Latency p95/5xx/DB conns + log table (`dashboard.tf:10`) `erp-pipeline-{env}-overview` `$3/mes`.
 - **Alarmas:** `ServiceErrorCount>10/5m` + `p95>500ms` + `5xx>10/5m` + `DBConnections>80` → SNS `alert_email` (`observability.tf:49`).
 - **Tracing:** OTel `NodeSDK` + `auto-instrumentations` + `OTLPTraceExporter` `OTEL_ENABLED=true` → `http://localhost:4318/v1/traces` (`tracing.js:20`).
-- **Health:** `/health/details` `pool {totalCount,idleCount,waitingCount}` + `uptime` + `memory` (`health.js:60`).
+- **Health:** `/health/live` (sin DB, liveness ECS) + `/health/ready` (DB + draining, 503 en shutdown) + `/health/details` `pool {totalCount,idleCount,waitingCount}` + `uptime` + `memory` (`packages/shared/src/health.js`).
 
 ![CloudWatch Monitoring](docs/screenshots/cloudwatch.png) _→ ahora con dashboard Fase 9 + Insights_
 
@@ -173,13 +173,15 @@ Logs, métricas, traces y health sin `ssh` — ver `docs/observability.md:1` y `
 
 FinOps **$0 dev** (toggles false) → Prod toggle sin reescribir — ver `docs/adr/ADR-004-scaling-strategy.md:1` y `terraform/variables.tf:80`:
 
-- **Decoupling:** `ordenes → productos` via HTTP `PRODUCTOS_URL` (`http://productos.erp.local:3001` con Cloud Map `erp.local` o `http://productos:3001` en compose) + `CircuitBreaker` (`circuitBreaker.js:1` `CLOSED→OPEN→HALF_OPEN` failureThreshold 5) + fallback `SELECT 1` DB + `GET /productos/:id` (`productos.js:40`). `GET /ordenes/_circuit` stats solo dev.
-- **Stock TX:** `POST /stock` `BEGIN; SELECT … FOR UPDATE; INSERT movimientos; COMMIT` (`stock.js:42`) + trigger `005_stock_invariant.sql:6` `409 STOCK_CONFLICT` si `stock insuficiente` + invalida cache.
+- **Decoupling:** `ordenes → productos` via HTTP `PRODUCTOS_URL` (`http://127.0.0.1:3001` en ECS: los 6 contenedores comparten network namespace; `http://productos:3001` en compose) + `CircuitBreaker` (`circuitBreaker.js` `CLOSED→OPEN→HALF_OPEN` failureThreshold 5) + fallback `SELECT 1` DB + `GET /productos/:id`. `GET /ordenes/_circuit` stats solo dev.
+- **Stock TX:** `POST /stock` y `POST /ordenes` hacen `BEGIN; SELECT … FOR UPDATE; INSERT movimientos; COMMIT` (`stock.js`, `ordenes.js`) + trigger `005_stock_invariant.sql` `409 STOCK_CONFLICT` si `stock insuficiente`. El alta de orden calcula el total en servidor y reserva stock en la misma transacción; `PUT /productos` ya no toca stock.
+- **Idempotencia:** `POST /ordenes` y `POST /stock` aceptan `Idempotency-Key` (`packages/shared/src/idempotency.js`): replay de la respuesta original, `409` si la key se reusa con otro body y TTL de limpieza 24 h.
 - **Cache:** `GET /productos?cache` `ioredis` `REDIS_URL=redis://redis:6379` (`cache.js:1` memory fallback) + `X-Cache HIT/MISS` header (`productos.js:15` `CACHE_TTL=30` + `del productos:list:*`). `docker-compose.yml:9` `redis:7-alpine` healthcheck; `cache.tf:1` ElastiCache `cache.t3.micro` toggle `enable_redis` (~$12/mes).
-- **Queue:** `POST /ordenes` y `POST /stock` escriben dominio + `outbox_events` en una misma transacción (`packages/shared/src/outbox.js`); el relay publica a SQS con reintentos y DLQ, y stock consume con `inbox_events` para deduplicar antes de borrar el mensaje. `enable_sqs` activa la cola/DLQ ($0.40/M); sin `SQS_QUEUE_URL` el outbox queda persistido pero no se intenta conectar a AWS.
+- **Queue:** `POST /ordenes` y `POST /stock` escriben dominio + `outbox_events` en una misma transacción (`packages/shared/src/outbox.js`); el relay publica a SQS con reintentos y DLQ, y stock consume con `inbox_events` para deduplicar antes de borrar el mensaje. Con SQS apagado el outbox queda persistido pero el stock **ya está reservado** por la transacción de la orden; el consumer no vuelve a descontar. `enable_sqs` activa la cola/DLQ ($0.40/M).
+- **Migraciones:** runner con `schema_migrations.checksum` SHA-256, `lock_timeout`/`statement_timeout` y aliases para renombres (`migrations/run.js`); rechaza una migración ya aplicada que cambió.
 - **ALB:** toggle `enable_alb` (`compute/main.tf:320` `aws_lb` + `target_group` `ip:80 /health` + `listener 80/443 ACM`) + SG `sg_alb` + `dynamic load_balancer nginx:80` (`main.tf:241`) — dev `false` ($0 nginx sidecar), prod `true` (~$16/mes) requiere `enable_nat_gateway=true` (private subnets).
 - **Autoscaling:** toggle `enable_autoscaling` (`compute/main.tf:296` `aws_appautoscaling_target 1-4` + `policy cpu 70%` + `memory 80%` + `desired_count = min`). Prod `min 2` HA.
-- **Chaos:** `scripts/chaos.sh:1` kill-productos (circuit fallback 404), cache HIT→MISS, stock 409 + `scripts/k6/resilience.js:1` 50 rps p95<300ms p99<500ms fail<1%.
+- **Chaos:** `scripts/chaos.sh` kill-productos (circuit fallback), cache HIT→MISS, stock 409, latencia (10/10 OK + métrica presente) + `scripts/k6/resilience.js` 50 rps p95<300ms p99<500ms fail<1% (404/409 esperados excluidos del threshold).
 
 ```bash
 # Local con cache+circuit
@@ -293,7 +295,8 @@ terraform -chdir=terraform plan -var-file=environments/prod.tfvars
 
 ```bash
 curl http://localhost:80/health
-curl http://localhost:80/api/productos/health
+curl http://localhost:80/api/productos/health/live
+curl http://localhost:80/api/productos/health/ready
 curl http://localhost:80/api/ordenes/health
 curl http://localhost:80/api/stock/health
 curl http://localhost:80/api/productos | jq

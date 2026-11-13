@@ -13,7 +13,7 @@ let productoId;
 let ordenId;
 
 beforeAll(async () => {
-  const producto = productoFactory({ nombre: `HTTP-${Date.now()}-${Math.random()}` });
+  const producto = productoFactory({ nombre: `HTTP-${Date.now()}-${Math.random()}`, stock: 1000 });
   const productoResult = await pool.query(
     'INSERT INTO productos (nombre, precio, stock) VALUES ($1, $2, $3) RETURNING id',
     [producto.nombre, producto.precio, producto.stock]

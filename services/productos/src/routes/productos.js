@@ -4,7 +4,8 @@ const {
   AppError,
   cache,
   parsePagination,
-  productoSchema,
+  productoCreateSchema,
+  productoUpdateSchema,
   setPaginationHeaders,
   sortToOrderBy,
   validate,
@@ -99,35 +100,54 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-// POST /productos — zod validation + fix falsy (Fase 3.3-3.4) + invalida cache (10.5)
-router.post('/', validate(productoSchema), async (req, res, next) => {
+// POST /productos — initial stock is an opening ledger entry, never a direct
+// write to productos.stock. The 005 trigger remains the only writer of stock.
+router.post('/', validate(productoCreateSchema), async (req, res, next) => {
+  const client = await pool.connect();
   try {
-    const { nombre, precio, stock } = req.body;
-    const stockVal = stock ?? 0; // fix: stock || 0 breaks stock=0
+    const { nombre, precio, stock = 0 } = req.body;
 
-    const { rows } = await pool.query(
-      'INSERT INTO productos (nombre, precio, stock) VALUES ($1, $2, $3) RETURNING *',
-      [nombre, precio, stockVal]
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      'INSERT INTO productos (nombre, precio, stock) VALUES ($1, $2, 0) RETURNING *',
+      [nombre, precio]
     );
-    // invalida cache list
+    const producto = rows[0];
+
+    if (stock > 0) {
+      await client.query(
+        `INSERT INTO movimientos_stock (producto_id, cantidad, tipo)
+         VALUES ($1, $2, 'entrada')`,
+        [producto.id, stock]
+      );
+    }
+
+    // Re-read so the response reflects the stock updated by the trigger.
+    const fresh = await client.query('SELECT * FROM productos WHERE id = $1', [producto.id]);
+    await client.query('COMMIT');
+
     await cache.del('productos:list:*');
-    res.status(201).json({ data: rows[0] });
+    res.status(201).json({ data: fresh.rows[0] });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     next(err);
+  } finally {
+    client.release();
   }
 });
 
-// PUT /productos/:id — update + cache invalidate
-router.put('/:id', validate(productoSchema), async (req, res, next) => {
+// PUT /productos/:id — metadata only. Stock changes exclusively through
+// movimientos_stock (POST /stock, order reservation), so PUT cannot reset it.
+router.put('/:id', validate(productoUpdateSchema), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       throw new AppError(400, 'VALIDATION_ERROR', 'id must be positive integer');
     }
-    const { nombre, precio, stock } = req.body;
+    const { nombre, precio } = req.body;
     const { rows } = await pool.query(
-      'UPDATE productos SET nombre=$1, precio=$2, stock=$3, updated_at=NOW() WHERE id=$4 RETURNING *',
-      [nombre, precio, stock ?? 0, id]
+      'UPDATE productos SET nombre=$1, precio=$2, updated_at=NOW() WHERE id=$3 RETURNING *',
+      [nombre, precio, id]
     );
     if (rows.length === 0) throw new AppError(404, 'NOT_FOUND', `producto ${id} not found`);
     await cache.del('productos:list:*');

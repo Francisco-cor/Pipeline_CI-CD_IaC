@@ -2,12 +2,14 @@
 
 const {
   CircuitBreaker,
+  createLifecycle,
   errorHandler,
   initTracing,
   metricsHandler,
   metricsMiddleware,
   notFoundHandler,
   securityMiddleware,
+  shutdownTracing,
 } = require('@erp/shared');
 const express = require('express');
 const pool = require('./db');
@@ -152,14 +154,12 @@ if (require.main === module) {
   const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info('svc-gateway listening', { port: PORT });
   });
-  process.on('SIGTERM', () => {
-    logger.info('SIGTERM received, closing gateway');
-    server.close(() => {
-      try {
-        pool.end(() => process.exit(0));
-      } catch (_e) {
-        process.exit(0);
-      }
-    });
+  const lifecycle = createLifecycle({
+    service: 'svc-gateway',
+    logger,
+    server,
+    pool,
+    onShutdown: [() => shutdownTracing()],
   });
+  lifecycle.install();
 }

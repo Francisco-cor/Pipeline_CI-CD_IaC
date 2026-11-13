@@ -9,7 +9,7 @@ const app = require('../index');
 let productoId;
 
 beforeAll(async () => {
-  const p = productoFactory();
+  const p = productoFactory({ stock: 100 });
   const { rows } = await pool.query(
     'INSERT INTO productos (nombre, precio, stock) VALUES ($1, $2, $3) RETURNING id',
     [p.nombre, p.precio, p.stock]
@@ -72,6 +72,59 @@ describe('Stock API — CRUD + validation', () => {
         .post('/stock')
         .send({ producto_id: String(productoId), cantidad: '3', tipo: 'entrada' });
       expect(res.status).toBe(201);
+    });
+  });
+
+  describe('POST /stock — Idempotency-Key', () => {
+    it('applies a movement once for sequential duplicates', async () => {
+      const p = productoFactory({ stock: 10 });
+      const { rows } = await pool.query(
+        'INSERT INTO productos (nombre, precio, stock) VALUES ($1, $2, $3) RETURNING id',
+        [p.nombre, p.precio, p.stock]
+      );
+      const id = rows[0].id;
+      const key = `stock-seq-${Date.now()}`;
+      const body = { producto_id: id, cantidad: 2, tipo: 'salida' };
+
+      const first = await request(app).post('/stock').set('Idempotency-Key', key).send(body);
+      const second = await request(app).post('/stock').set('Idempotency-Key', key).send(body);
+
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(second.body.data.id).toBe(first.body.data.id);
+      expect(second.headers['idempotent-replayed']).toBe('true');
+
+      const { rows: stockRows } = await pool.query('SELECT stock FROM productos WHERE id = $1', [
+        id,
+      ]);
+      expect(stockRows[0].stock).toBe(8);
+      const { rows: movementRows } = await pool.query(
+        'SELECT COUNT(*)::int AS n FROM movimientos_stock WHERE producto_id = $1',
+        [id]
+      );
+      expect(movementRows[0].n).toBe(1);
+    });
+
+    it('rejects the same key with a different body', async () => {
+      const key = `stock-mismatch-${Date.now()}`;
+      const first = await request(app)
+        .post('/stock')
+        .set('Idempotency-Key', key)
+        .send({ producto_id: productoId, cantidad: 1, tipo: 'entrada' });
+      const second = await request(app)
+        .post('/stock')
+        .set('Idempotency-Key', key)
+        .send({ producto_id: productoId, cantidad: 2, tipo: 'entrada' });
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(409);
+      expect(second.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
+    });
+
+    it('400 when cantidad exceeds INTEGER', async () => {
+      const res = await request(app)
+        .post('/stock')
+        .send({ producto_id: productoId, cantidad: 2147483648, tipo: 'entrada' });
+      expect(res.status).toBe(400);
     });
   });
 

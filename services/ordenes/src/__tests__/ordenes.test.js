@@ -7,16 +7,11 @@ const pool = require('../db');
 const app = require('../index');
 
 let productoId;
+const PRECIO = 10;
 
 beforeAll(async () => {
   // Ensure at least one producto exists for FK
-  const p = productoFactory();
-  await request(app)
-    .post('/ordenes')
-    .send({ producto_id: 999999, cantidad: 1, total: 10 })
-    .catch(() => {});
-  // Create real producto via productos service DB directly if ordenes cannot create producto
-  // Instead insert via productos pool (same DB)
+  const p = productoFactory({ stock: 1000, precio: PRECIO });
   const { rows } = await pool.query(
     'INSERT INTO productos (nombre, precio, stock) VALUES ($1, $2, $3) RETURNING id',
     [p.nombre, p.precio, p.stock]
@@ -80,6 +75,161 @@ describe('Ordenes API — CRUD + validation', () => {
         .post('/ordenes')
         .send({ producto_id: String(productoId), cantidad: '2', total: '20.5' });
       expect(res.status).toBe(201);
+    });
+  });
+
+  describe('POST /ordenes — server-side total and stock reservation', () => {
+    async function createProducto(stock, precio = PRECIO) {
+      const { rows } = await pool.query(
+        'INSERT INTO productos (nombre, precio, stock) VALUES ($1, $2, $3) RETURNING id',
+        [`order-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, precio, stock]
+      );
+      return rows[0].id;
+    }
+
+    async function stockOf(id) {
+      const { rows } = await pool.query('SELECT stock FROM productos WHERE id = $1', [id]);
+      return rows[0].stock;
+    }
+
+    it('ignores a manipulated client total and stores the server total', async () => {
+      const id = await createProducto(20);
+      const res = await request(app)
+        .post('/ordenes')
+        .send({ producto_id: id, cantidad: 3, total: 0.01 });
+
+      expect(res.status).toBe(201);
+      expect(Number(res.body.data.total)).toBe(30);
+      expect(res.body.data.estado).toBe('procesada');
+      const { rows } = await pool.query('SELECT total FROM ordenes WHERE id = $1', [
+        res.body.data.id,
+      ]);
+      expect(Number(rows[0].total)).toBe(30);
+    });
+
+    it('rejects overselling with 409 and leaves stock/order untouched', async () => {
+      const id = await createProducto(1);
+      const before = await stockOf(id);
+      const res = await request(app)
+        .post('/ordenes')
+        .send({ producto_id: id, cantidad: 2, total: 20 });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('STOCK_CONFLICT');
+      expect(await stockOf(id)).toBe(before);
+
+      const orders = await pool.query(
+        'SELECT COUNT(*)::int AS n FROM ordenes WHERE producto_id = $1',
+        [id]
+      );
+      expect(orders.rows[0].n).toBe(0);
+      const movements = await pool.query(
+        'SELECT COUNT(*)::int AS n FROM movimientos_stock WHERE producto_id = $1',
+        [id]
+      );
+      expect(movements.rows[0].n).toBe(0);
+    });
+
+    it('reserves stock exactly once and commits the outbox events', async () => {
+      const id = await createProducto(10);
+      const res = await request(app)
+        .post('/ordenes')
+        .send({ producto_id: id, cantidad: 3, total: 999 });
+
+      expect(res.status).toBe(201);
+      expect(await stockOf(id)).toBe(7);
+
+      const movements = await pool.query(
+        'SELECT cantidad, tipo FROM movimientos_stock WHERE producto_id = $1',
+        [id]
+      );
+      expect(movements.rows).toEqual([{ cantidad: 3, tipo: 'salida' }]);
+
+      const movementEvent = await pool.query(
+        "SELECT COUNT(*)::int AS n FROM outbox_events WHERE event_type = 'stock.actualizado'"
+      );
+      expect(movementEvent.rows[0].n).toBeGreaterThan(0);
+    });
+
+    it('rejects a total that overflows NUMERIC(10,2)', async () => {
+      const id = await createProducto(5, 99999999.99);
+      const res = await request(app)
+        .post('/ordenes')
+        .send({ producto_id: id, cantidad: 2, total: 1 });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  describe('POST /ordenes — Idempotency-Key', () => {
+    async function createProducto(stock) {
+      const { rows } = await pool.query(
+        'INSERT INTO productos (nombre, precio, stock) VALUES ($1, $2, $3) RETURNING id',
+        [`idem-order-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, PRECIO, stock]
+      );
+      return rows[0].id;
+    }
+
+    it('replays the original response for a sequential duplicate', async () => {
+      const id = await createProducto(10);
+      const key = `orden-seq-${Date.now()}`;
+      const body = { producto_id: id, cantidad: 2, total: 20 };
+
+      const first = await request(app).post('/ordenes').set('Idempotency-Key', key).send(body);
+      const second = await request(app).post('/ordenes').set('Idempotency-Key', key).send(body);
+
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(second.body.data.id).toBe(first.body.data.id);
+      expect(second.headers['idempotent-replayed']).toBe('true');
+
+      const orders = await pool.query(
+        'SELECT COUNT(*)::int AS n FROM ordenes WHERE producto_id = $1',
+        [id]
+      );
+      expect(orders.rows[0].n).toBe(1);
+      const movements = await pool.query(
+        'SELECT COUNT(*)::int AS n FROM movimientos_stock WHERE producto_id = $1',
+        [id]
+      );
+      expect(movements.rows[0].n).toBe(1);
+    });
+
+    it('returns the same response for concurrent duplicates', async () => {
+      const id = await createProducto(10);
+      const key = `orden-conc-${Date.now()}`;
+      const body = { producto_id: id, cantidad: 1, total: 10 };
+
+      const [a, b] = await Promise.all([
+        request(app).post('/ordenes').set('Idempotency-Key', key).send(body),
+        request(app).post('/ordenes').set('Idempotency-Key', key).send(body),
+      ]);
+
+      expect([a.status, b.status]).toEqual([201, 201]);
+      expect(a.body.data.id).toBe(b.body.data.id);
+      const orders = await pool.query(
+        'SELECT COUNT(*)::int AS n FROM ordenes WHERE producto_id = $1',
+        [id]
+      );
+      expect(orders.rows[0].n).toBe(1);
+    });
+
+    it('rejects the same key with a different body', async () => {
+      const id = await createProducto(10);
+      const key = `orden-mismatch-${Date.now()}`;
+
+      const first = await request(app)
+        .post('/ordenes')
+        .set('Idempotency-Key', key)
+        .send({ producto_id: id, cantidad: 1, total: 10 });
+      const second = await request(app)
+        .post('/ordenes')
+        .set('Idempotency-Key', key)
+        .send({ producto_id: id, cantidad: 2, total: 20 });
+
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(409);
+      expect(second.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
     });
   });
 

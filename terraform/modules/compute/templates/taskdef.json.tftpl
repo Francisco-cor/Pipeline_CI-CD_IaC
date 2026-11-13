@@ -63,7 +63,7 @@
       { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
     ],
     "healthCheck": {
-      "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health || exit 1"],
+      "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health/live || exit 1"],
       "interval": 30,
       "timeout": 5,
       "retries": 3,
@@ -98,7 +98,7 @@
       { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
     ],
     "healthCheck": {
-      "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health || exit 1"],
+      "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health/live || exit 1"],
       "interval": 30,
       "timeout": 5,
       "retries": 3,
@@ -132,7 +132,7 @@
       { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
     ],
     "healthCheck": {
-      "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health || exit 1"],
+      "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health/live || exit 1"],
       "interval": 30,
       "timeout": 5,
       "retries": 3,
@@ -165,7 +165,7 @@
       { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
     ],
     "healthCheck": {
-      "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3004/health || exit 1"],
+      "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3004/health/live || exit 1"],
       "interval": 30,
       "timeout": 5,
       "retries": 3,

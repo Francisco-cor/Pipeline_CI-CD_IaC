@@ -20,6 +20,10 @@ export const options = {
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:80';
 
+// 404/409 are part of the resilience contract (missing product/oversell), not
+// transport failures, so they must not count against http_req_failed.
+http.setResponseCallback(http.expectedStatuses(200, 201, 404, 409));
+
 export function setup() {
   // crea producto base para ordenes válidas
   const payload = JSON.stringify({

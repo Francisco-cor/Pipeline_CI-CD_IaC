@@ -1,13 +1,18 @@
 'use strict';
 
-const { enqueueStockActualizado } = require('@erp/shared');
+const { cache } = require('@erp/shared');
 
 /**
- * Handles order events in the stock bounded context. The inbox transaction
- * supplied by queue.js also contains the movement and its outbound event.
+ * Handles order events in the stock bounded context.
+ *
+ * Stock is already reserved by the ordenes transaction (one `salida` movement
+ * inserted under the 005 trigger). This consumer must NOT insert another
+ * movement: doing so would double-discount the order. It only invalidates the
+ * productos cache so subsequent reads observe the reservation. The inbox
+ * transaction in queue.js still makes redeliveries harmless.
  */
-async function handleQueueEvent(message, client) {
-  if (message.event !== 'orden.creada') return;
+async function handleQueueEvent(message, _client) {
+  if (message.event !== 'orden.creada') return { handled: false };
 
   const order = message.data || {};
   const productoId = Number(order.producto_id);
@@ -21,18 +26,10 @@ async function handleQueueEvent(message, client) {
     throw new Error('orden.creada payload is invalid');
   }
 
-  const product = await client.query('SELECT id FROM productos WHERE id = $1 FOR UPDATE', [
-    productoId,
-  ]);
-  if (product.rows.length === 0) throw new Error(`producto ${productoId} not found`);
+  await cache.del(`productos:id:${productoId}`);
+  await cache.del('productos:list:*');
 
-  const { rows } = await client.query(
-    `INSERT INTO movimientos_stock (producto_id, cantidad, tipo)
-     VALUES ($1, $2, 'salida')
-     RETURNING *`,
-    [productoId, cantidad]
-  );
-  await enqueueStockActualizado(client, rows[0]);
+  return { handled: true, productoId, cantidad };
 }
 
 module.exports = { handleQueueEvent };
