@@ -143,18 +143,15 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Job 1: Lint (Fase 6.5 eslint --cache + cache + summary)
-  # Matrix: runs ESLint on all backend services in parallel.
-  # npm cache keyed on each service's package-lock.json.
-  # eslint cache via --cache flag + actions/cache for .eslintcache
+  # One root install lints every workspace (the root config already covers
+  # services/*, packages/*, migrations, frontend and scripts). Running four
+  # matrix jobs duplicated the install and produced four red checks for the
+  # same failure.
   # ---------------------------------------------------------------------------
   lint:
-    name: Lint (${{ matrix.service }})
+    name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      matrix:
-        service: [productos, ordenes, stock, gateway]
-      fail-fast: false
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -162,26 +159,28 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            services/*/package-lock.json
+            migrations/package-lock.json
 
       - name: Cache ESLint
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          path: services/${{ matrix.service }}/.eslintcache
-          key: eslint-${{ matrix.service }}-${{ hashFiles(format('services/{0}/src/**/*.js', matrix.service)) }}-${{ hashFiles(format('services/{0}/package.json', matrix.service)) }}
+          path: .eslintcache
+          key: eslint-${{ hashFiles('services/*/src/**/*.js', 'packages/*/src/**/*.js', 'migrations/**/*.js', 'frontend/**/*.js', '.eslintrc.js') }}
           restore-keys: |
-            eslint-${{ matrix.service }}-
+            eslint-
 
-      - name: Lint svc-${{ matrix.service }} (cache)
+      - name: Lint workspaces (cache)
         run: npm ci --silent && npm run lint -- --cache --cache-location .eslintcache
-        working-directory: services/${{ matrix.service }}
 
       - name: Lint summary
         if: always()
         run: |
-          echo "## Lint ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
-          echo "- eslint --cache passed" >> $GITHUB_STEP_SUMMARY
-          echo "- cache key: eslint-${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Lint" >> $GITHUB_STEP_SUMMARY
+          echo "- eslint --cache passed across workspaces" >> $GITHUB_STEP_SUMMARY
+          echo "- cache key: eslint-${{ hashFiles('.eslintrc.js') }}" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
   # Job 1b: Prettier check (Fase 6.5)
@@ -213,18 +212,16 @@ jobs:
           echo "- prettier --check passed" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
-  # Job 1c: npm audit (Fase 8.7) — fail on HIGH in every backend workspace
+  # Job 1c: npm audit (Fase 8.7) — fail on HIGH in backend workspaces
+  # The root lockfile aggregates every workspace, so a single audit covers
+  # productos/ordenes/stock/gateway without four installs.
   # ---------------------------------------------------------------------------
   audit:
-    name: Audit (${{ matrix.service }})
+    name: Audit
     needs: [changes]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      matrix:
-        service: [productos, ordenes, stock, gateway]
-      fail-fast: false
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -232,17 +229,16 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: services/${{ matrix.service }}/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: npm audit (HIGH, prod only)
         run: npm ci --silent && npm audit --audit-level=high --omit=dev
-        working-directory: services/${{ matrix.service }}
 
       - name: Summary
         if: always()
         run: |
-          echo "## Audit ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
-          echo "- npm audit --audit-level=high passed" >> $GITHUB_STEP_SUMMARY
+          echo "## Audit" >> $GITHUB_STEP_SUMMARY
+          echo "- npm audit --audit-level=high passed (all workspaces)" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
   # Job 1d: Gitleaks (Fase 6.3)
