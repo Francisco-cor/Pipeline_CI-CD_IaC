@@ -90,12 +90,12 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 ## CI/CD (Fase 6 + 7)
 
 - **Concurrency:** `pipeline.yml:38-40` `group: workflow-ref` + `cancel-in-progress: true` (Fase 6.1) + `teardown.yml:15` `concurrency: teardown-ref` (Fase 7.8).
-- **Changes:** `pipeline.yml:58-107` `dorny/paths-filter@v3` → `productos/ordenes/stock/gateway/nginx/migrations/any_service` (Fase 6.7).
-- **Lint:** `pipeline.yml:114-148` matrix + `eslint --cache` + `actions/cache .eslintcache` + summary (Fase 6.5).
-- **Format:** `pipeline.yml:153-176` `prettier --check` (Fase 6.5).
+- **Changes:** `pipeline.yml` `dorny/paths-filter@v3` → `productos/ordenes/stock/gateway/nginx/migrations/any_service` + `code`/`e2e`; `audit/test/trivy-fs/terraform/e2e` se saltean si no cambió el código (Fase 6.7).
+- **Lint:** `pipeline.yml` un solo job root + `eslint --cache` sobre workspaces + `actions/cache .eslintcache` + summary (Fase 6.5).
+- **Format:** `pipeline.yml` `prettier --check` (Fase 6.5).
 - **Sec:** `pipeline.yml:182-235` `gitleaks/gitleaks-action@v2` + `aquasecurity/trivy-action fs` SARIF → code scanning (Fase 6.3).
-- **Test:** `pipeline.yml:242-304` matrix `postgres:15`, `jest --coverage`, `upload-artifact coverage-*`, summary + `needs: [lint,format]` (Fase 6.6).
-- **e2e:** `pipeline.yml:310-339` `docker compose up --build --wait` + `scripts/e2e.sh` (Fase 4.8).
+- **Test:** `pipeline.yml` matrix `postgres:15` (solo si `code` cambió), `jest --coverage`, `upload-artifact coverage-*`, summary + `needs: [lint,format]` (Fase 6.6).
+- **e2e:** `pipeline.yml` `docker compose -f docker-compose.yml up --build --wait` + `scripts/e2e.sh`, sin el override de desarrollo (Fase 4.8).
 - **Terraform PR:** `pipeline.yml:346-460` `fmt -check` → `init -backend=false` → `validate` → `tflint --init/--recursive` (`terraform/.tflint.hcl:1` `plugin aws 0.38.0`) → `checkov` SARIF, sin backend ni credenciales AWS para PRs no confiables (Fase 6.4).
 - **Build:** `pipeline.yml:467-613` `if: push main && any_service` → `docker/setup-buildx-action@v3` + `docker/build-push-action@v6` per-service `if: productos==true` con `cache-from/to: type=gha,mode=max` → ECR `:sha-<short>` + `:latest` (Fase 6.2 + 6.7).
 - **Trivy image:** `pipeline.yml:619-672` matrix post-build `trivy image CRITICAL,HIGH` SARIF con gate bloqueante (Fase 6.3).
