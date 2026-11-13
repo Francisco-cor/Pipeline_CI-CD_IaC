@@ -75,6 +75,31 @@ describe('Productos API — CRUD + validation (Fase 3 & 4)', () => {
       expect(res.status).toBe(201);
       expect(res.body.data.nombre).toBe(payload.nombre);
       expect(res.headers['x-request-id']).toBeDefined();
+      expect(res.body.data.stock).toBe(7);
+    });
+
+    it('400 when precio exceeds NUMERIC(10,2)', async () => {
+      const res = await request(app)
+        .post('/productos')
+        .send({ nombre: uniqueName('OverflowPrice'), precio: 1e9 });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('400 when stock exceeds INTEGER', async () => {
+      const res = await request(app)
+        .post('/productos')
+        .send({ nombre: uniqueName('OverflowStock'), precio: 1, stock: 2147483648 });
+      expect(res.status).toBe(400);
+    });
+
+    it('400 with VALIDATION_ERROR on malformed JSON', async () => {
+      const res = await request(app)
+        .post('/productos')
+        .set('Content-Type', 'application/json')
+        .send('{"nombre":');
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
   });
 
@@ -109,6 +134,12 @@ describe('Productos API — CRUD + validation (Fase 3 & 4)', () => {
       const res = await request(app).get('/productos?page=999&limit=10');
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBe(0);
+    });
+
+    it('caps page at 10000', async () => {
+      const res = await request(app).get('/productos?page=10001&limit=1');
+      expect(res.status).toBe(200);
+      expect(res.body.page).toBe(10000);
     });
 
     it('sort asc vs desc differ', async () => {
@@ -166,6 +197,74 @@ describe('Productos API — CRUD + validation (Fase 3 & 4)', () => {
   });
 });
 
+describe('Productos API — stock as a ledger', () => {
+  const ledgerFor = async productoId => {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(SUM(CASE WHEN tipo = 'entrada' THEN cantidad ELSE -cantidad END), 0)::int AS sum
+         FROM movimientos_stock WHERE producto_id = $1`,
+      [productoId]
+    );
+    return rows[0].sum;
+  };
+
+  it('records initial stock as an opening movement and reconciles', async () => {
+    const created = await request(app)
+      .post('/productos')
+      .send({ nombre: uniqueName('Ledger'), precio: 10, stock: 12 });
+    expect(created.status).toBe(201);
+    expect(created.body.data.stock).toBe(12);
+
+    const id = created.body.data.id;
+    expect(await ledgerFor(id)).toBe(12);
+    const { rows } = await pool.query('SELECT stock FROM productos WHERE id = $1', [id]);
+    expect(rows[0].stock).toBe(await ledgerFor(id));
+  });
+
+  it('does not create a movement when initial stock is omitted', async () => {
+    const created = await request(app)
+      .post('/productos')
+      .send({ nombre: uniqueName('NoStock'), precio: 10 });
+    expect(created.status).toBe(201);
+    expect(created.body.data.stock).toBe(0);
+    expect(await ledgerFor(created.body.data.id)).toBe(0);
+  });
+
+  it('PUT never changes stock, even when the body includes stock', async () => {
+    const created = await request(app)
+      .post('/productos')
+      .send({ nombre: uniqueName('PutStock'), precio: 10, stock: 9 });
+    const id = created.body.data.id;
+
+    const updated = await request(app)
+      .put(`/productos/${id}`)
+      .send({ nombre: uniqueName('PutStockRenamed'), precio: 11, stock: 0 });
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.stock).toBe(9);
+    expect(Number(updated.body.data.precio)).toBe(11);
+    expect(await ledgerFor(id)).toBe(9);
+  });
+
+  it('keeps the ledger balanced after new movements', async () => {
+    const created = await request(app)
+      .post('/productos')
+      .send({ nombre: uniqueName('LedgerFlow'), precio: 10, stock: 5 });
+    const id = created.body.data.id;
+
+    await pool.query(
+      "INSERT INTO movimientos_stock (producto_id, cantidad, tipo) VALUES ($1, 2, 'salida')",
+      [id]
+    );
+    await pool.query(
+      "INSERT INTO movimientos_stock (producto_id, cantidad, tipo) VALUES ($1, 4, 'entrada')",
+      [id]
+    );
+
+    const { rows } = await pool.query('SELECT stock FROM productos WHERE id = $1', [id]);
+    expect(rows[0].stock).toBe(7);
+    expect(rows[0].stock).toBe(await ledgerFor(id));
+  });
+});
+
 describe('Productos API — resource and diagnostic branches', () => {
   let productoId;
 
@@ -197,7 +296,13 @@ describe('Productos API — resource and diagnostic branches', () => {
     expect((await request(app).put('/productos/not-an-id').send(payload)).status).toBe(400);
     expect((await request(app).put('/productos/999999999').send(payload)).status).toBe(404);
 
-    expect((await request(app).delete(`/productos/${productoId}`)).status).toBe(204);
+    // Stock movements are ledger history: FK RESTRICT keeps the product alive.
+    expect((await request(app).delete(`/productos/${productoId}`)).status).toBe(409);
+
+    const disposable = await request(app)
+      .post('/productos')
+      .send({ nombre: uniqueName('DISPOSABLE'), precio: 1 });
+    expect((await request(app).delete(`/productos/${disposable.body.data.id}`)).status).toBe(204);
     expect((await request(app).delete('/productos/not-an-id')).status).toBe(400);
     expect((await request(app).delete('/productos/999999999')).status).toBe(404);
   });
