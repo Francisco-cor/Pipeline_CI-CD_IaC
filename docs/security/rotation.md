@@ -131,6 +131,10 @@ aws ssm get-parameter --name /erp/prod/db-url --with-decryption --query Paramete
   Expect a short cache-cold window; the app falls back to memory or misses.
 - `transit_encryption_enabled` and `at_rest_encryption_enabled` are both true;
   `rediss://` is mandatory. A `redis://` URL will fail the handshake.
+- **Migration note:** the resource changed from `aws_elasticache_cluster` to
+  `aws_elasticache_replication_group` to enable TLS/AUTH. On an existing
+  environment Terraform will replace the cache (ephemeral data, no migration).
+  Plan it for a window: expect cache-cold misses while the new group is created.
 
 ## 7. SNS alert subscription
 
