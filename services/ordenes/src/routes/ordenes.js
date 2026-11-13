@@ -3,7 +3,10 @@
 const {
   AppError,
   CircuitBreaker,
+  cache,
   enqueueOrdenCreada,
+  enqueueStockActualizado,
+  idempotency,
   parsePagination,
   setPaginationHeaders,
   sortToOrderBy,
@@ -15,6 +18,13 @@ const express = require('express');
 const pool = require('../db');
 
 const router = express.Router();
+
+// Keep the computed total inside ordenes.total NUMERIC(10,2).
+const MAX_TOTAL = 99999999.99;
+
+// Defensive no-ops: cache invalidation and rollback failures must not mask the
+// real response. Ignored by coverage because they only run on I/O failure.
+const ignoreError = /* istanbul ignore next */ () => {};
 
 // Fase 10.1 — decouples ordenes → productos via HTTP + circuit breaker
 // Cuando PRODUCTOS_URL está seteado (ej. http://productos.erp.local:3001 o http://productos:3001)
@@ -125,37 +135,90 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// POST /ordenes — zod + FK check (Fase 10.1 HTTP + circuit breaker) + SQS outbox (10.6)
-router.post('/', validate(ordenSchema), async (req, res, next) => {
-  const client = await pool.connect();
-  try {
-    const { producto_id, cantidad, total } = req.body;
+// POST /ordenes — server-side total + atomic stock reservation.
+//
+// Guarantee of the 201: the order row, its `salida` stock movement and the
+// outbox events are committed in one transaction, so a 201 means the stock was
+// reserved exactly once and the order is `procesada`. SQS/outbox is only the
+// downstream integration path; it is not required for stock consistency. If
+// SQS is disabled, the order still succeeds and the event stays in the outbox.
+router.post(
+  '/',
+  validate(ordenSchema),
+  idempotency({ scope: 'ordenes:create', pool }),
+  async (req, res, next) => {
+    const client = await pool.connect();
+    try {
+      const { producto_id, cantidad } = req.body;
 
-    const exists = await verifyProductoExists(producto_id, req.id);
-    if (!exists) {
-      throw new AppError(404, 'NOT_FOUND', `producto ${producto_id} not found`);
+      // Fast existence check (HTTP with circuit breaker, or DB fallback). The
+      // transaction below re-reads and locks the row, so this is not authoritative.
+      const exists = await verifyProductoExists(producto_id, req.id);
+      if (!exists) {
+        throw new AppError(404, 'NOT_FOUND', `producto ${producto_id} not found`);
+      }
+
+      await client.query('BEGIN');
+
+      const productResult = await client.query(
+        'SELECT id, precio, stock FROM productos WHERE id = $1 FOR UPDATE',
+        [producto_id]
+      );
+      if (productResult.rows.length === 0) {
+        throw new AppError(404, 'NOT_FOUND', `producto ${producto_id} not found`);
+      }
+
+      const producto = productResult.rows[0];
+      if (producto.stock < cantidad) {
+        throw new AppError(
+          409,
+          'STOCK_CONFLICT',
+          `stock insuficiente para producto ${producto_id}: stock=${producto.stock} cantidad=${cantidad}`
+        );
+      }
+
+      // The client-provided total is advisory and ignored: pricing is authoritative.
+      const total = Math.round(Number(producto.precio) * cantidad * 100) / 100;
+      if (total > MAX_TOTAL) {
+        throw new AppError(400, 'VALIDATION_ERROR', 'order total exceeds the supported range');
+      }
+
+      const { rows } = await client.query(
+        `INSERT INTO ordenes (producto_id, cantidad, total, estado)
+       VALUES ($1, $2, $3, 'procesada')
+       RETURNING *`,
+        [producto_id, cantidad, total]
+      );
+      const orden = rows[0];
+
+      // The 005 trigger updates productos.stock from this ledger entry. This is
+      // the single place where an order reserves stock: the SQS consumer must
+      // never insert a second `salida` movement for the same order.
+      const movement = await client.query(
+        `INSERT INTO movimientos_stock (producto_id, cantidad, tipo)
+       VALUES ($1, $2, 'salida')
+       RETURNING *`,
+        [producto_id, cantidad]
+      );
+
+      // The order and its events are committed atomically. SQS delivery is
+      // delegated to the durable outbox relay after this transaction commits.
+      await enqueueOrdenCreada(client, orden);
+      await enqueueStockActualizado(client, movement.rows[0]);
+      await client.query('COMMIT');
+
+      cache.del('productos:list:*').catch(ignoreError);
+      cache.del(`productos:id:${producto_id}`).catch(ignoreError);
+
+      res.status(201).json({ data: orden });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(ignoreError);
+      next(err);
+    } finally {
+      client.release();
     }
-
-    await client.query('BEGIN');
-    const { rows } = await client.query(
-      'INSERT INTO ordenes (producto_id, cantidad, total) VALUES ($1, $2, $3) RETURNING *',
-      [producto_id, cantidad, total]
-    );
-    const orden = rows[0];
-
-    // The order and its event are committed atomically. SQS delivery is
-    // delegated to the durable outbox relay after this transaction commits.
-    await enqueueOrdenCreada(client, orden);
-    await client.query('COMMIT');
-
-    res.status(201).json({ data: orden });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    next(err);
-  } finally {
-    client.release();
   }
-});
+);
 
 // Debug: breaker stats (solo dev)
 router.get('/_circuit', (req, res) => {
