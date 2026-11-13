@@ -28,9 +28,12 @@ tags:
   - name: stock
   - name: health
 
+security:
+  - bearerAuth: []
 paths:
   /health:
     get:
+      security: []
       tags: [health]
       summary: NGINX health
       responses:
@@ -46,6 +49,7 @@ paths:
 
   /api/productos/health:
     get:
+      security: []
       tags: [health]
       summary: productos health (DB)
       responses:
@@ -53,6 +57,7 @@ paths:
         '500': { $ref: '#/components/responses/HealthFail' }
   /api/v1/productos/health:
     get:
+      security: []
       tags: [health]
       summary: productos health versioned alias
       responses:
@@ -61,6 +66,7 @@ paths:
 
   /api/ordenes/health:
     get:
+      security: []
       tags: [health]
       summary: ordenes health
       responses:
@@ -68,6 +74,7 @@ paths:
         '500': { $ref: '#/components/responses/HealthFail' }
   /api/v1/ordenes/health:
     get:
+      security: []
       tags: [health]
       summary: ordenes health versioned
       responses:
@@ -75,6 +82,7 @@ paths:
 
   /api/stock/health:
     get:
+      security: []
       tags: [health]
       summary: stock health
       responses:
@@ -82,6 +90,7 @@ paths:
         '500': { $ref: '#/components/responses/HealthFail' }
   /api/v1/stock/health:
     get:
+      security: []
       tags: [health]
       summary: stock health versioned
       responses:
@@ -96,6 +105,8 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Sort'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: ok
           headers:
@@ -116,6 +127,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ProductoInput' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '201':
           description: created
           content:
@@ -136,6 +149,8 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Sort'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: ok
           headers:
@@ -153,6 +168,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ProductoInput' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '201':
           description: created
           content:
@@ -170,6 +187,8 @@ paths:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Limit'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: ok
           headers:
@@ -189,6 +208,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/OrdenInput' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '201':
           description: created
           content:
@@ -208,6 +229,8 @@ paths:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Limit'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           content:
             application/json:
@@ -223,6 +246,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/OrdenInput' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '201':
           content:
             application/json:
@@ -239,6 +264,8 @@ paths:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Limit'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           content:
             application/json:
@@ -254,6 +281,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/StockInput' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '201':
           content:
             application/json:
@@ -271,6 +300,8 @@ paths:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Limit'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           content:
             application/json:
@@ -286,6 +317,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/StockInput' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '201':
           content:
             application/json:
@@ -296,6 +329,7 @@ paths:
 
   /health/live:
     get:
+      security: []
       tags: [health]
       summary: Liveness (no DB)
       responses:
@@ -311,6 +345,7 @@ paths:
                   uptime_s: { type: integer }
   /health/ready:
     get:
+      security: []
       tags: [health]
       summary: Readiness (DB check)
       responses:
@@ -318,6 +353,18 @@ paths:
         '500': { $ref: '#/components/responses/HealthFail' }
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        JWT issued by the platform identity provider (HS256 or RS256).
+        Required for /api/** data routes when AUTH_ENABLED=true (always true in
+        prod). Roles: reader (GET), operator (GET + POST/PUT), admin (also
+        DELETE). Health, metadata and diagnostics routes are not authenticated
+        (diagnostics are disabled at the edge in prod).
+
   parameters:
     Page:
       name: page
@@ -443,6 +490,16 @@ components:
             requestId: { type: string, format: uuid }
 
   responses:
+    Unauthorized:
+      description: missing, expired or invalid Bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: authenticated but the role/scope cannot perform this operation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     BadRequest:
       description: validation error
       content:

@@ -98,7 +98,90 @@ aws ssm get-parameter --name /erp/prod/db-url --with-decryption --query Paramete
 
 ---
 
-## 5. Verificación
+## 5. JWT signing keys (`JWT_SECRET` / `JWT_PUBLIC_KEY`)
+
+- HS256 uses `JWT_SECRET`; RS256 uses `JWT_PUBLIC_KEY` in the services and the
+  private key stays with the issuer. RS256 is preferred when more than one
+  service or team must verify tokens.
+- Rotation (HS256): create the new secret, deploy it to the identity issuer and
+  every service, wait for old tokens to expire, then remove the old secret.
+  Tokens signed with the old secret remain valid until `exp`; plan the overlap
+  window accordingly.
+- Rotation (RS256): publish a new key pair, add the new public key to
+  `JWT_PUBLIC_KEY`, switch the issuer to the new private key, and retire the old
+  public key after the maximum token lifetime.
+- Never commit either key. In AWS, store them in SSM `SecureString` (or Secrets
+  Manager) and inject them with ECS `secrets`, not plain environment values.
+  This repository generates an HS256 secret and stores it at
+  `/erp/<env>/jwt-secret`; retrieve it only for controlled token issuance:
+  `aws ssm get-parameter --name /erp/prod/jwt-secret --with-decryption --query Parameter.Value --output text`.
+- Prod startup fails closed (`assertAuthConfig`) if `AUTH_ENABLED` is on without
+  a verification key; do not 'fix' an outage by disabling auth.
+
+## 6. Redis AUTH token (`/erp/<env>/redis-url`)
+
+- `terraform/cache.tf` generates `random_password.redis_auth` and writes the
+  full `rediss://:<token>@<endpoint>:6379` URL to SSM as a `SecureString`.
+- The ECS task execution role can read only the DB and Redis parameter ARNs
+  (`modules/secrets/main.tf`); the application receives `REDIS_URL` via
+  `secrets`, not `environment`.
+- Rotation: `terraform taint 'random_password.redis_auth[0]'` + apply. This
+  replaces the replication group `auth_token`, updates the SSM value and
+  requires a new ECS deployment (`aws ecs update-service --force-new-deployment`).
+  Expect a short cache-cold window; the app falls back to memory or misses.
+- `transit_encryption_enabled` and `at_rest_encryption_enabled` are both true;
+  `rediss://` is mandatory. A `redis://` URL will fail the handshake.
+
+## 7. SNS alert subscription
+
+`prod.tfvars` requires a real `alert_email`; the Terraform precondition rejects
+empty values and `example.com/org/net`. After `apply`, AWS sends a subscription
+confirmation email. Alarms do not deliver notifications until that link is
+clicked. Check the topic subscription status:
+
+```bash
+aws sns list-subscriptions-by-topic --topic-arn <topic-arn> \
+  --query 'Subscriptions[].SubscriptionArn'
+```
+
+## 8. Database roles `erp_app` / `erp_migrator` (PENDING)
+
+The target design is two least-privilege roles instead of using the RDS master
+user for everything:
+
+- `erp_migrator`: owns DDL, runs the one-shot `migrations` container, no
+  application traffic.
+- `erp_app`: DML only (`SELECT/INSERT/UPDATE/DELETE` on application tables,
+  `USAGE` on sequences), used by the four services. No `CREATE`, no ownership.
+- Separate Terraform `random_password` values and separate SSM parameters
+  (`db-app-url`, `db-migrator-url`); the execution role reads both, each
+  container gets only its own URL.
+
+Why it is not implemented yet: creating roles and grants requires an
+administrative connection after RDS is available. The current migration
+container connects with `DATABASE_URL` and has no separate bootstrap step; doing
+this safely needs an idempotent `CREATE ROLE ... IF NOT EXISTS` bootstrap
+(psql/Lambda/Vault) plus a verification that every table/sequence is covered,
+otherwise a missed grant causes a production outage. This should be delivered
+as its own change with a staging rehearsal. Until then, the single RDS user is
+documented as a known gap and the migration/service boundary is enforced only by
+process, not by the database.
+
+## 9. Pending product-security work
+
+- **Tenant row-level security:** `tenant_id` is only in JWT/audit today; tables
+  do not have a tenant column or RLS policies. A real multi-tenant isolation
+  requires schema changes plus `SET LOCAL app.tenant_id` per transaction.
+- **Automatic secret rotation:** DB/Redis/JWT rotation is manual (taint + apply).
+  Planned path is Secrets Manager rotation Lambdas or an external operator.
+- **Audit retention/immutability:** `audit_log` currently lives in the primary
+  database with no retention job or WORM export. Recommended: monthly export to
+  S3 Object Lock + a retention policy.
+- **Diagnostics network allowlist:** prod returns 404 at NGINX. If internal
+  scraping is needed later, add a private listener or CIDR allowlist instead of
+  re-enabling public routes.
+
+## 10. Verificación
 
 ```bash
 # OIDC thumbprint actual
