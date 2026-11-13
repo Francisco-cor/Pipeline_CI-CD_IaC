@@ -382,7 +382,11 @@ jobs:
   e2e:
     name: e2e smoke
     needs: [test, changes]
-    if: needs.changes.outputs.e2e == 'true'
+    # Run when tests passed, or when only the runtime plumbing (compose/e2e
+    # script) changed and the test matrix was legitimately skipped.
+    if: |
+      always() && needs.changes.outputs.e2e == 'true' &&
+      (needs.test.result == 'success' || needs.changes.outputs.code != 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
