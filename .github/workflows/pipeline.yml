@@ -68,6 +68,8 @@ jobs:
       migrations: ${{ steps.filter.outputs.migrations }}
       terraform: ${{ steps.filter.outputs.terraform }}
       any_service: ${{ steps.filter.outputs.any_service }}
+      code: ${{ steps.filter.outputs.code }}
+      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -112,6 +114,32 @@ jobs:
               - 'migrations/**'
               - 'package.json'
               - 'package-lock.json'
+            # Heavy jobs (audit/test/trivy-fs) only need to run when there is
+            # executable code or a dependency/config change to inspect.
+            code:
+              - 'services/**'
+              - 'packages/**'
+              - 'migrations/**'
+              - 'nginx/**'
+              - 'frontend/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.eslintrc.js'
+              - '.prettierrc'
+              - '.prettierignore'
+            # e2e rebuilds the whole compose stack, so it only runs when the
+            # runtime surface (services, compose, nginx, migrations) changed.
+            e2e:
+              - 'services/**'
+              - 'packages/**'
+              - 'migrations/**'
+              - 'nginx/**'
+              - 'frontend/**'
+              - 'docker-compose.yml'
+              - 'docker-compose.override.yml'
+              - 'scripts/e2e.sh'
+              - 'package.json'
+              - 'package-lock.json'
 
   # ---------------------------------------------------------------------------
   # Job 1: Lint (Fase 6.5 eslint --cache + cache + summary)
@@ -122,6 +150,7 @@ jobs:
   lint:
     name: Lint (${{ matrix.service }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         service: [productos, ordenes, stock, gateway]
@@ -161,6 +190,7 @@ jobs:
   format:
     name: Prettier check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -187,7 +217,10 @@ jobs:
   # ---------------------------------------------------------------------------
   audit:
     name: Audit (${{ matrix.service }})
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         service: [productos, ordenes, stock, gateway]
@@ -218,6 +251,7 @@ jobs:
   gitleaks:
     name: Gitleaks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -240,7 +274,10 @@ jobs:
   # ---------------------------------------------------------------------------
   trivy-fs:
     name: Trivy FS
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       security-events: write
       contents: read
@@ -278,8 +315,10 @@ jobs:
   # ---------------------------------------------------------------------------
   test:
     name: Test (${{ matrix.service }})
-    needs: [lint, format]
+    needs: [lint, format, changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         service: [productos, ordenes, stock, gateway]
@@ -346,28 +385,32 @@ jobs:
   # ---------------------------------------------------------------------------
   e2e:
     name: e2e smoke
-    needs: test
+    needs: [test, changes]
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # Use the base file only: the override mounts sources and runs nodemon,
+      # which is a dev setup, not what we want to smoke-test in CI.
       - name: Build and up
-        run: docker compose up -d --build --wait
+        run: docker compose -f docker-compose.yml up -d --build --wait
       - name: Wait for nginx healthy
         run: |
           for i in 1 2 3 4 5 6; do
             if curl -sf http://localhost:80/health >/dev/null; then echo "nginx ready"; exit 0; fi
             sleep 5
           done
-          docker compose logs
+          docker compose -f docker-compose.yml logs
           exit 1
       - name: Run e2e smoke
         run: bash scripts/e2e.sh
       - name: Logs on failure
         if: failure()
-        run: docker compose logs
+        run: docker compose -f docker-compose.yml logs
       - name: Down
         if: always()
-        run: docker compose down -v
+        run: docker compose -f docker-compose.yml down -v
       - name: Summary
         if: always()
         run: |
@@ -381,8 +424,10 @@ jobs:
   # ---------------------------------------------------------------------------
   terraform:
     name: Terraform checks
-    if: github.event_name == 'pull_request'
+    needs: [changes]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.terraform == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       security-events: write
@@ -450,6 +495,7 @@ jobs:
     needs: [test, e2e, audit, gitleaks, trivy-fs, changes]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.changes.outputs.any_service == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       id-token: write
       contents: read
@@ -639,6 +685,7 @@ jobs:
     needs: [build, changes]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.changes.outputs.any_service == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       id-token: write
       contents: read
@@ -714,6 +761,7 @@ jobs:
     needs: [build, trivy-image]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       id-token: write
       contents: read
