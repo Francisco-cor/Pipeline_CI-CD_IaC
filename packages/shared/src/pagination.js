@@ -2,15 +2,19 @@
 
 // SPDX-License-Identifier: MIT
 // Shared pagination — Fase 3.7
-// Parse ?page&limit&sort, cap limit 100, return offset/limit + headers.
+// Parse ?page&limit&sort, cap limit 100 and page 10000, return offset/limit + headers.
+
+const MAX_PAGE = 10000;
+const MAX_LIMIT = 100;
 
 /**
  * @param {import('express').Request} req
  * @returns {{page:number, limit:number, offset:number, sort:string}}
  */
 function parsePagination(req) {
-  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const parsedPage = parseInt(req.query.page, 10) || 1;
+  const page = Math.min(MAX_PAGE, Math.max(1, parsedPage));
+  const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(req.query.limit, 10) || 20));
   const sortParam = req.query.sort;
   const allowed = ['created_at_asc', 'created_at_desc'];
   const sort = allowed.includes(sortParam) ? sortParam : 'created_at_desc';
@@ -41,8 +45,9 @@ function setPaginationHeaders(res, req, page, limit, total) {
   res.set('Link', links.join(', '));
 }
 
+// id DESC is the deterministic tiebreaker and matches the pagination indexes.
 function sortToOrderBy(sort) {
-  return sort === 'created_at_asc' ? 'created_at ASC' : 'created_at DESC';
+  return sort === 'created_at_asc' ? 'created_at ASC, id ASC' : 'created_at DESC, id DESC';
 }
 
-module.exports = { parsePagination, setPaginationHeaders, sortToOrderBy };
+module.exports = { parsePagination, setPaginationHeaders, sortToOrderBy, MAX_PAGE, MAX_LIMIT };
