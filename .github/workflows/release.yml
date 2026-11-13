@@ -1,23 +1,26 @@
 # SPDX-License-Identifier: MIT
-# release.yml — Fase 11.6 semantic-release on push to main (tags v* + CHANGELOG + GitHub release)
-# Usa Node 24, OIDC no necesario — GITHUB_TOKEN con contents:write + pull-requests:write
-# Alternativa release-please: este workflow usa semantic-release directo (conventional-changelog angular)
+# release.yml — semantic-release, gated on a successful CI/CD Pipeline run.
+#
+# Releases must never race the pipeline: a tag pushed while main is still
+# being built/tested/deployed would publish a version that can later fail CI.
+# Using workflow_run makes this workflow start only after the upstream run
+# finishes, and the job-level `if` requires that run to be a successful push
+# to main. Pull-request runs and cancelled/failed workflows are ignored.
+#
+# workflow_dispatch is kept for re-running a release by hand; in that case
+# there is no workflow_run payload and the default branch ref is used.
 
 name: release
 
 on:
-  push:
-    branches: [main]
-    # docs/chore commits cannot produce a semantic-release version, and
-    # workflow edits do not ship code. Skipping them avoids a full install
-    # + lint + semantic-release run on every housekeeping push.
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - '.github/**'
+  workflow_run:
+    workflows: ['CI/CD Pipeline']
+    types: [completed]
   workflow_dispatch:
 
 permissions:
+  # semantic-release pushes the version tag and the CHANGELOG commit, and
+  # @semantic-release/github comments on released issues/PRs.
   contents: write
   issues: write
   pull-requests: write
@@ -30,22 +33,29 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    # workflow_run: only a successful push build of main may release.
+    # workflow_dispatch: always allowed (manual, uses the checked-out ref).
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          # Build the exact commit CI validated, not the current main tip.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
           fetch-depth: 0
-          persist-credentials: false
+          # Keep the token persisted: @semantic-release/git pushes the tag and
+          # CHANGELOG commit with plain `git push`.
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
           cache: npm
 
+      # Lint/format already ran in the CI/CD Pipeline that triggered this run.
       - run: npm ci
-
-      - run: npm run lint -- --cache --cache-location .eslintcache
-      - run: npx prettier --check "services/*/src/**/*.js" "packages/*/src/**/*.js" "migrations/**/*.js"
 
       - name: semantic-release
         env:
