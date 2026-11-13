@@ -91,8 +91,14 @@ Y desde GitHub:
 
 ```bash
 gh secret list                      # AWS_ROLE_ARN presente
-gh workflow run teardown.yml -f confirm=no -f environment=dev   # no debe fallar por OIDC
+
+# Prueba de asunción de rol sin destruir nada (workflow manual, main only):
+gh workflow run terraform-plan.yml -f environment=dev
+gh run watch
 ```
+
+El teardown manual requiere `confirm=destroy`; con `confirm=no` el job se
+saltea (no sirve como prueba).
 
 ## Reactivar el destroy nocturno
 
