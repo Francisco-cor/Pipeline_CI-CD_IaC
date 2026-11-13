@@ -450,6 +450,16 @@ jobs:
         run: terraform validate -no-color
         working-directory: terraform
 
+      # The CI identity is a separate root so the nightly destroy cannot
+      # remove it. Validate it without a backend or credentials.
+      - name: Terraform init bootstrap (backend false)
+        run: terraform init -backend=false -input=false
+        working-directory: terraform/bootstrap
+
+      - name: Terraform validate bootstrap
+        run: terraform validate -no-color
+        working-directory: terraform/bootstrap
+
       - name: TFLint init
         run: tflint --init
         working-directory: terraform

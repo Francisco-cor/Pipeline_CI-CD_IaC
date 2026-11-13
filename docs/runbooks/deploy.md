@@ -46,7 +46,7 @@ IMAGE_TAG=sha-$GIT_SHA bash scripts/deploy.sh
 | ECR verify      | `aws ecr describe-images --image-ids imageTag=$TAG` por cada servicio cambiado (`productos/ordenes/stock/gateway/nginx/migrations`) + `imageDigest` | `MISSING` → aborta, `build.sh` primero                       |
 | Register        | `describe-task-definition` → python swap `image` → `register-task-definition`                                                                       | si JSON inválido → `ROLLBACK`                                |
 | Digest verify   | `describe-task-definition $NEW_REVISION` → grep `$TAG`                                                                                              | mismatch → aborta                                            |
-| Update          | `update-service --task-definition $NEW_REVISION`                                                                                                    | si `AccessDenied` → revisa `cicd.tf:118` `ECSServiceDeploy`  |
+| Update          | `update-service --task-definition $NEW_REVISION`                                                                                                    | si `AccessDenied` → revisa `bootstrap/cicd.tf:118` `ECSServiceDeploy`  |
 | Wait            | `aws ecs wait services-stable` (10m timeout)                                                                                                        | timeout → `WARN` + sigue a verificar                         |
 | Rollback detect | `describe-services` `taskDefinition` vs `NEW_REVISION` + `events` grep `rollback\|circuit breaker`                                                  | mismatch → `ERROR rollback likely` + exit 1                  |
 

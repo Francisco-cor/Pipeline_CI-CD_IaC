@@ -20,7 +20,7 @@ Use **OpenID Connect (OIDC)** to federate GitHub Actions as a trusted identity p
 
 Each workflow run receives a short-lived JWT from GitHub's OIDC endpoint. The pipeline exchanges this JWT for temporary AWS credentials via `sts:AssumeRoleWithWebIdentity`. No static keys exist anywhere.
 
-Terraform resources in `cicd.tf`:
+Terraform resources in `bootstrap/cicd.tf`:
 
 - `aws_iam_openid_connect_provider.github_actions` — registers GitHub as a trusted IdP
 - `aws_iam_role.github_actions` — trust policy scoped to this specific repository
@@ -73,7 +73,7 @@ A runner inside the VPC could use an instance profile instead of OIDC. Operation
 **Trade-offs:**
 
 - One extra setup step after `terraform apply`: copy the role ARN output to GitHub secrets
-- OIDC trust is per-account — if the same pattern is needed in a second account, `cicd.tf` must be applied there too
+- OIDC trust is per-account — if the same pattern is needed in a second account, `bootstrap/cicd.tf` must be applied there too
 
 ---
 

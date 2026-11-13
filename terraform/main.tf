@@ -15,7 +15,8 @@
 # -----------------------------------------------------------------------------
 
 terraform {
-  required_version = ">= 1.5.0"
+  # `removed` blocks (removed.tf) require 1.7+.
+  required_version = ">= 1.7.0"
 
   required_providers {
     aws = {
@@ -26,11 +27,6 @@ terraform {
       # Used by the database module to generate a secure RDS password
       source  = "hashicorp/random"
       version = "~> 3.5"
-    }
-    tls = {
-      # Used by cicd.tf to fetch GitHub's OIDC certificate thumbprint
-      source  = "hashicorp/tls"
-      version = "~> 4.0"
     }
   }
 }

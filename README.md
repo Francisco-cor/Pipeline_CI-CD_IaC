@@ -91,7 +91,7 @@ The following screenshot confirms the ECS Fargate task running correctly in the 
 
 ## Security (Fase 8 hardened)
 
-- **Zero-Trust Identity:** OIDC GitHub→AWS (`terraform/cicd.tf:17-65` `ADR-002`) — `prod` least-privilege `sub=ref:refs/heads/main` only, `dev` allows `pull_request` (`cicd.tf:56` Fase 8.5); thumbprint via `data.tls_certificate` auto-rotation (`docs/security/rotation.md:1`).
+- **Zero-Trust Identity:** OIDC GitHub→AWS (`terraform/bootstrap/cicd.tf:17-65` `ADR-002`) — `prod` least-privilege `sub=ref:refs/heads/main` only, `dev` allows `pull_request` (`bootstrap/cicd.tf:56` Fase 8.5); thumbprint via `data.tls_certificate` auto-rotation (`docs/security/rotation.md:1`).
 - **Runtime Secrets:** SSM `SecureString` `/erp/*/db-url` (`secrets/main.tf:23`) + IAM `GetParameter/GetParameters` + `kms:Decrypt ViaService ssm` (`secrets/main.tf:73` Fase 8.1) + rotation runbook (`docs/security/rotation.md:40`).
 - **Encryption at rest:** production can create or reuse a rotated customer-managed KMS key for SSM `SecureString` and RDS Performance Insights (`terraform/kms.tf:1`); long retention remains guarded.
 - **VPC Isolation:** SG `sg_db` solo `sg_app→5432` (`networking/main.tf:163`); dev/staging may use public subnets for FinOps, while production guards require private ECS/RDS subnets, NAT per AZ and ALB/ACM (`enable_nat_gateway=true`, `enable_alb=true`).
@@ -277,7 +277,7 @@ terraform -chdir=terraform plan -var-file=environments/prod.tfvars
 ```
 
 - **TaskDef templated:** `terraform/modules/compute/templates/taskdef.json.tftpl:1` via `templatefile` en `compute/main.tf:155-200` (Fase 7.4) — separa infra de contenedores.
-- **Teardown guard:** `teardown.yml:15-60` bloquea `prod` (`if: environment != prod`) + requiere `confirm=destroy` + GitHub Environment `destroy` para aprobación manual (Fase 7.8).
+- **Teardown guard:** `teardown.yml:1-70` bloquea `prod` (`if: environment != prod`) + requiere `confirm=destroy` + GitHub Environment `destroy` para aprobación manual (Fase 7.8). El schedule queda apagado hasta setear la variable `AUTO_CLEANUP_ENABLED=true`; la identidad OIDC vive en `terraform/bootstrap/` y sobrevive al destroy (`docs/runbooks/bootstrap.md`).
 - **Runbooks:** `docs/runbooks/deploy.md:1`, `rollback.md:1`, `drift.md:1` (Fase 7.9) — cómo deployar, rollback por circuit breaker y detectar drift.
 
 - **Hot-reload:** `docker-compose.override.yml:12-62` monta `services/*/src` + `packages/shared/src` y usa `npm run dev` (nodemon). Edita `services/productos/src/routes/productos.js` y recarga sin rebuild.

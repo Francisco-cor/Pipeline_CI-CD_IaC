@@ -7,7 +7,7 @@
 - **Runtime:** Node 24 + Express 5 + `pg` 8, PostgreSQL 15 en RDS `db.t3.micro`.
 - **Infra:** AWS ECS Fargate (task 0.5 vCPU/1GB), ECR, RDS, SSM Parameter Store, CloudWatch, SNS, ElastiCache/SQS opcionales (Fase 10).
 - **IaC:** Terraform 1.9+ modular (`terraform/modules/*`), backend S3+DynamoDB per env (`terraform/backend.tf:1-20` `encrypt=true` + `environments/backend-*.hcl:1` + `environments/*.tfvars:1`), `terraform/.tflint.hcl:1` + `checkov`, toggles `enable_nat_gateway/service_discovery/alb/autoscaling/redis/sqs` (Fase 7+10).
-- **CI/CD:** GitHub Actions OIDC (`terraform/cicd.tf:17-65`, `ADR-002`), `concurrency` + `paths-filter` + `lint --cache` + `gitleaks/trivy` + `tflint/checkov` + `buildx gha cache` + `coverage` (`pipeline.yml:18-711`, `release.yml:1`) — Fase 6 (<6m PR), `teardown.yml:15-60` prod guard (Fase 7.8), `semantic-release` (`package.json:12`, `.releaserc.json:1`) Fase 11.6.
+- **CI/CD:** GitHub Actions OIDC (`terraform/bootstrap/cicd.tf:17-65`, `ADR-002`), `concurrency` + `paths-filter` + `lint --cache` + `gitleaks/trivy` + `tflint/checkov` + `buildx gha cache` + `coverage` (`pipeline.yml:18-711`, `release.yml:1`) — Fase 6 (<6m PR), `teardown.yml:15-60` prod guard (Fase 7.8), `semantic-release` (`package.json:12`, `.releaserc.json:1`) Fase 11.6.
 - **Proxy:** NGINX sidecar (`nginx/nginx.conf:1-96`) en misma task ECS (awsvpc, `localhost`) — + ALB opcional Fase 10.4 (`compute/main.tf:320`) + BFF `gateway:3004` (`nginx.conf:102` Fase 11.1).
 - **Cache/Queue:** Redis `ioredis` + memory fallback (`cache.js:1`), SQS `@aws-sdk/client-sqs` (`queue.js:1`) — Fase 10.5/10.6.
 - **Frontend/BFF:** `frontend/{index.html,app.js,styles.css}` static dashboard `http://localhost:8080` + `services/gateway/src/index.js:1` `svc-gateway` `GET /bff/ordenes/:id` (`X-Request-Id`, circuit, BFF aggregation `ordenes.js:152` Fase 11) + OpenAPI 3.1 `docs/openapi.yaml:1` + `docs/api.md:1`.
@@ -36,14 +36,16 @@
 │   │   ├── dev.tfvars + backend-dev.hcl
 │   │   ├── staging.tfvars + backend-staging.hcl
 │   │   └── prod.tfvars + backend-prod.hcl
-│   ├── cicd.tf               # OIDC provider + role (github_actions)
+│   ├── removed.tf            # one-time state migration (destroy=false) to bootstrap/
+│   ├── bootstrap/            # separate root: OIDC provider + role, immune to teardown
+│   │   └── {versions,variables,cicd}.tf
 │   ├── observability.tf      # metric filter + alarm (Fase 9.5)
 │   ├── dashboard.tf          # 6 widgets (Fase 9.4)
 │   └── backend.tf            # S3 partial config encrypt=true (Fase 7.1 — supply via -backend-config)
 ├── scripts/{build.sh,deploy.sh,chaos.sh,k6/{smoke,resilience}.js,bootstrap-backend.{sh,ps1}}
 ├── .releaserc.json            # Fase 11.6 semantic-release (commit-analyzer/changelog/github/git)
 ├── CHANGELOG.md               # Fase 11.6 Keep a Changelog conventional commits
-└── docs/{adr/{ADR-004..006},ARCHITECTURE.md,api.md,openapi.yaml,interview.md,demo.md,observability.md,runbooks/{deploy,rollback,drift}.md}
+└── docs/{adr/{ADR-004..006},ARCHITECTURE.md,api.md,openapi.yaml,interview.md,demo.md,observability.md,runbooks/{deploy,rollback,drift,bootstrap}.md}
 ```
 
 ## Flujo de request
@@ -98,7 +100,7 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 - **Build:** `pipeline.yml:467-613` `if: push main && any_service` → `docker/setup-buildx-action@v3` + `docker/build-push-action@v6` per-service `if: productos==true` con `cache-from/to: type=gha,mode=max` → ECR `:sha-<short>` + `:latest` (Fase 6.2 + 6.7).
 - **Trivy image:** `pipeline.yml:619-672` matrix post-build `trivy image CRITICAL,HIGH` SARIF con gate bloqueante (Fase 6.3).
 - **Deploy:** `pipeline.yml:679-711` `scripts/deploy.sh:1` hardened lock+digest+rollback detect (`flock`, `ecr describe-images`, `register`, `wait services-stable`, rollback check) solo si `build` OK (Fase 7.7).
-- **Teardown:** `teardown.yml:1-60` `schedule 23 UTC` + `workflow_dispatch` `confirm=destroy` + `environment=destroy` + prod guard `if: environment != prod` + `init -backend-config=environments/backend-*.hcl` + `destroy -var-file=environments/*.tfvars` (Fase 7.8).
+- **Teardown:** `teardown.yml:1-70` `schedule 23 UTC` (solo si `vars.AUTO_CLEANUP_ENABLED == 'true'`) + `workflow_dispatch` `confirm=destroy` + `environment=destroy` + prod guard `if: environment != prod` + `init -backend-config=environments/backend-*.hcl` + `destroy -var-file=environments/*.tfvars` (Fase 7.8). La identidad OIDC vive en `terraform/bootstrap/` y no se destruye (`docs/runbooks/bootstrap.md`).
 
 ## Observabilidad (Fase 9) + Scale metrics (Fase 10)
 
@@ -111,7 +113,7 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 
 ## Seguridad (Fase 8)
 
-- OIDC GitHub→AWS (`cicd.tf:16-65`, `ADR-002`) — `prod` solo `main` (`cicd.tf:56` Fase 8.5), thumbprint `data.tls_certificate` auto + rotation doc `docs/security/rotation.md:1`.
+- OIDC GitHub→AWS (`bootstrap/cicd.tf:16-65`, `ADR-002`) — `prod` solo `main` (`bootstrap/cicd.tf:56` Fase 8.5), thumbprint `data.tls_certificate` auto + rotation doc `docs/security/rotation.md:1`.
 - SSM `SecureString` (`secrets/main.tf:23`) + `GetParameter/GetParameters` + customer-managed KMS when enabled (`kms.tf:1`) + `kms:Decrypt ViaService ssm` scoped to the key ARN + rotation manual (`docs/security/rotation.md:40`).
 - `nginx.conf:14-40` `limit_req_zone 30r/s burst 60 429` + `server_tokens off` + headers `X-Content-Type-Options/HSTS/CSP/Permissions-Policy` (`nginx.conf:36` Fase 8.4) + `client_max_body_size 1m` + `proxy_hide_header`.
 - `packages/shared/src/db.js:18` + `migrations/run.js:15` RDS TLS `rejectUnauthorized:true` en prod con CA `certs/rds-ca-bundle.pem` `/app/certs` (`Dockerfile:25` Fase 8.2) + `trust proxy 1` + `express-rate-limit 100/min` (`middleware.js:20` + `index.js:14` Fase 8.3).

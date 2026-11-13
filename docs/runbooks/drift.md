@@ -83,7 +83,7 @@ aws rds create-db-snapshot --db-instance-identifier erp-pipeline-prod-postgres -
 - No editar infra manualmente en consola — todo via `terraform` + PR
 - PRs requieren `Terraform checks` verde (`tflint` + `checkov`); el plan remoto se
   ejecuta con aprobación desde `main`.
-- `teardown.yml:1-60` tiene prod guard (`if: environment != 'prod'`) — nunca destruye prod automáticamente
+- `teardown.yml:1-70` tiene prod guard (`if: environment != 'prod'`) — nunca destruye prod automáticamente. El schedule requiere `vars.AUTO_CLEANUP_ENABLED == 'true'`; la identidad OIDC vive en `terraform/bootstrap/` (`docs/runbooks/bootstrap.md`).
 - `enable_deletion_protection=true` en `terraform/environments/prod.tfvars:12` + `terraform/modules/database/main.tf:115-118` impide `terraform destroy` accidental
 
 ## Verificación multi-env (Fase 7.1 métrica)

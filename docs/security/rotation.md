@@ -4,7 +4,7 @@
 
 ## 1. OIDC Thumbprint Rotation (GitHub → AWS)
 
-**Contexto:** `terraform/cicd.tf:18` usa `data.tls_certificate.github_actions` para obtener `sha1_fingerprint` de `https://token.actions.githubusercontent.com/.well-known/openid-configuration`. AWS requiere `thumbprint_list` en `aws_iam_openid_connect_provider.github_actions:27`.
+**Contexto:** `terraform/bootstrap/cicd.tf:18` usa `data.tls_certificate.github_actions` para obtener `sha1_fingerprint` de `https://token.actions.githubusercontent.com/.well-known/openid-configuration`. AWS requiere `thumbprint_list` en `aws_iam_openid_connect_provider.github_actions:27`.
 
 **Cuando rotar:**
 
@@ -35,7 +35,7 @@ terraform -chdir=terraform apply -var-file=environments/prod.tfvars
 
 **Least-privilege por env (Fase 8.5):**
 
-- `cicd.tf:56` `condition StringLike sub` queda limitado a
+- `bootstrap/cicd.tf:56` `condition StringLike sub` queda limitado a
   `repo:owner/repo:ref:refs/heads/main` para todos los entornos.
 - Los PR ejecutan únicamente validaciones estáticas sin credenciales AWS; el plan
   con backend remoto se solicita en el workflow confiable manual y protegido.
@@ -113,7 +113,7 @@ terraform -chdir=terraform plan -var-file=environments/prod.tfvars | grep github
 
 ## Referencias
 
-- `terraform/cicd.tf:18-65` OIDC provider + trust `StringLike sub` least-privilege
+- `terraform/bootstrap/cicd.tf:18-65` OIDC provider + trust `StringLike sub` least-privilege
 - `terraform/kms.tf:1` + `terraform/modules/secrets/main.tf:73-92` CMK opcional, SSM `GetParameter/GetParameters` y `kms:Decrypt` con `ViaService` condition
 - `terraform/modules/database/main.tf:27` random_password
 - `docs/adr/ADR-002-oidc-github-actions.md:1` ADR OIDC
