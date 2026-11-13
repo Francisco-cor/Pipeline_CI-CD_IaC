@@ -35,10 +35,12 @@ on:
   pull_request:
     branches: [main]
 
-# 6.1 concurrency — cancela runs previos del mismo branch/workflow
+# 6.1 concurrency — cancela runs previos del mismo branch/workflow.
+# Only supersede PR runs: cancelling a main run could kill an in-flight
+# deploy halfway through. Main runs queue instead.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   AWS_REGION: us-east-2
