@@ -11,7 +11,7 @@ COPY migrations/package.json ./migrations/package.json
 COPY packages/shared/src ./packages/shared/src
 # Copy service src for npm ci to resolve workspace (optional)
 COPY services/productos/src ./services/productos/src
-RUN npm ci --ignore-scripts
+RUN npm ci --omit=dev --ignore-scripts
 
 FROM node:24-alpine AS runtime
 WORKDIR /app
