@@ -201,10 +201,13 @@ resource "aws_ecs_task_definition" "app" {
     log_group     = aws_cloudwatch_log_group.ecs.name
     region        = data.aws_region.current.name
     # Fase 10 envs
-    redis_url      = var.redis_url
-    sqs_queue_url  = var.sqs_queue_url
-    productos_url  = var.enable_service_discovery ? "http://productos.erp.local:3001" : "http://127.0.0.1:3001"
-    ordenes_url    = var.enable_service_discovery ? "http://ordenes.erp.local:3002" : "http://127.0.0.1:3002"
+    redis_url     = var.redis_url
+    sqs_queue_url = var.sqs_queue_url
+    # All six containers share the task network namespace (awsvpc + sidecars),
+    # and the tasks are not registered in Cloud Map. Loopback is therefore the
+    # only URL that resolves at runtime; do not advertise *.erp.local here.
+    productos_url  = "http://127.0.0.1:3001"
+    ordenes_url    = "http://127.0.0.1:3002"
     cache_ttl      = "30"
     enable_tracing = "false"
   })
