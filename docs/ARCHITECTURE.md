@@ -122,7 +122,7 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 ## Convenciones
 
 - **Node 24** (`.nvmrc:1`, `.tool-versions:1`), **LF** (`.editorconfig:1`), **Prettier** (`.prettierrc:1`), **ESLint** (`eslint:recommended` + `import/recommended` en `.eslintrc.js:8`).
-- Commits `tipo(scope): msg`, PRs 1 scope, dependencias via `dependabot.yml` + `renovate.json`.
+- Commits `tipo(scope): msg`, PRs 1 scope, dependencias via `.github/dependabot.yml` (agrupadas, mensuales).
 
 ## Escalabilidad & Resiliencia (Fase 10)
 
