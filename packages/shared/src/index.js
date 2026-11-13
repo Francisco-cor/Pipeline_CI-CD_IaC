@@ -7,6 +7,9 @@ const cache = require('./cache');
 const circuitBreaker = require('./circuitBreaker');
 const pool = require('./db');
 const errors = require('./errors');
+const health = require('./health');
+const idempotency = require('./idempotency');
+const lifecycle = require('./lifecycle');
 const logger = require('./logger');
 const metrics = require('./metrics');
 const middleware = require('./middleware');
@@ -44,6 +47,17 @@ module.exports = {
   AppError: errors.AppError,
   errorHandler: errors.errorHandler,
   notFoundHandler: errors.notFoundHandler,
+  normalizeError: errors.normalizeError,
+
+  // health / lifecycle
+  createHealthRouter: health.createHealthRouter,
+  createLifecycle: lifecycle.createLifecycle,
+  isDraining: lifecycle.isDraining,
+  setDraining: lifecycle.setDraining,
+
+  // idempotency
+  idempotency: idempotency.idempotency,
+  cleanupIdempotencyKeys: idempotency.cleanupIdempotencyKeys,
 
   // pagination
   parsePagination: pagination.parsePagination,
@@ -53,6 +67,8 @@ module.exports = {
   // validate
   z: validate.z,
   validate: validate.validate,
+  productoCreateSchema: validate.productoCreateSchema,
+  productoUpdateSchema: validate.productoUpdateSchema,
   productoSchema: validate.productoSchema,
   ordenSchema: validate.ordenSchema,
   stockSchema: validate.stockSchema,
