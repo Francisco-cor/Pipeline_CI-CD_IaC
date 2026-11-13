@@ -39,9 +39,12 @@ jobs:
     name: Terraform Destroy
     runs-on: ubuntu-latest
     # Fase 7.8 — prod guard: nunca destruir prod automáticamente
-    # schedule solo corre si ENVIRONMENT != prod; manual requiere confirm=="destroy"
+    # The schedule stays off until the repo variable AUTO_CLEANUP_ENABLED is
+    # set to 'true'. It was failing every night on OIDC assume-role after the
+    # role was torn down; see docs/runbooks/bootstrap.md.
+    # Manual dispatch still requires confirm=="destroy" and env != prod.
     if: |
-      github.event_name == 'schedule' && vars.ENVIRONMENT != 'prod' ||
+      github.event_name == 'schedule' && vars.AUTO_CLEANUP_ENABLED == 'true' && vars.ENVIRONMENT != 'prod' ||
       github.event_name == 'workflow_dispatch' && github.event.inputs.confirm == 'destroy' && github.event.inputs.environment != 'prod'
 
     # GitHub Environment protection — configura en Settings → Environments → "destroy"
@@ -58,6 +61,8 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.9.8
 
       # Fase 7.8 — prod guard (fail fast)
       - name: Prod guard — refuse prod destroy
