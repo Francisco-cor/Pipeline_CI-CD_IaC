@@ -1,8 +1,56 @@
 // SPDX-License-Identifier: MIT
 // Frontend dashboard — vanilla JS, fetch NGINX API (http://localhost:80 default)
+//
+// API_BASE comes from ?api=, localStorage, or the default. Only http(s) URLs
+// are accepted, and only same-origin/same-host or explicitly allowlisted
+// origins are persisted. This prevents javascript:/data: injection and stops a
+// malicious link from writing an arbitrary API origin into localStorage.
+
+const DEFAULT_API_BASE = 'http://localhost:80';
+const STATIC_API_ALLOWLIST = [
+  'http://localhost:80',
+  'http://127.0.0.1:80',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://localhost:3003',
+  'http://localhost:3004',
+];
+
+function apiAllowlist() {
+  const configured = Array.isArray(window.ERP_API_ALLOWLIST) ? window.ERP_API_ALLOWLIST : [];
+  return new Set([...STATIC_API_ALLOWLIST, ...configured]);
+}
+
+function normalizeApiBase(value) {
+  if (!value || typeof value !== 'string') return null;
+  let url;
+  try {
+    url = new URL(value, location.origin);
+  } catch (_err) {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  const sameHost = url.hostname === location.hostname;
+  if (!sameHost && !apiAllowlist().has(url.origin)) return null;
+  return url.origin;
+}
+
 const API_BASE = (() => {
-  const qs = new URLSearchParams(location.search);
-  return qs.get('api') || localStorage.getItem('api_base') || 'http://localhost:80';
+  const params = new URLSearchParams(location.search);
+  const candidates = [params.get('api'), localStorage.getItem('api_base'), DEFAULT_API_BASE];
+  for (const candidate of candidates) {
+    const normalized = normalizeApiBase(candidate);
+    if (normalized) {
+      // Never keep a value that failed validation.
+      try {
+        localStorage.setItem('api_base', normalized);
+      } catch (_err) {
+        // Storage can be unavailable (private mode); the page still works.
+      }
+      return normalized;
+    }
+  }
+  return DEFAULT_API_BASE;
 })();
 
 const $ = s => document.querySelector(s);
@@ -21,7 +69,7 @@ const toast = (msg, isErr = true) => {
 };
 
 async function api(path, opts = {}) {
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
+  const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
     ...opts,
@@ -114,7 +162,7 @@ async function loadOrdenes() {
       rows
         .map(
           o => `
-    <tr><td>${escapeHtml(o.id)}</td><td>${escapeHtml(o.producto_id)}</td><td>${escapeHtml(o.cantidad)}</td><td>${escapeHtml(o.total)}</td><td><button onclick="bff(${Number(o.id)})">include</button></td></tr>
+    <tr><td>${escapeHtml(o.id)}</td><td>${escapeHtml(o.producto_id)}</td><td>${escapeHtml(o.cantidad)}</td><td>${escapeHtml(o.total)}</td><td><button type="button" class="bff-btn" data-orden-id="${Number(o.id)}">include</button></td></tr>
   `
         )
         .join('') || '<tr><td colspan=5 class="muted">vacío</td></tr>';
@@ -180,8 +228,14 @@ function bind() {
   $('#apiBase').textContent = API_BASE;
   $('#apiInput').value = API_BASE;
   $('#apiSave').onclick = () => {
-    localStorage.setItem('api_base', $('#apiInput').value);
-    location.href = '?api=' + encodeURIComponent($('#apiInput').value);
+    const candidate = $('#apiInput').value;
+    const normalized = normalizeApiBase(candidate);
+    if (!normalized) {
+      toast('API_BASE rejected: use an http(s) same-origin or allowlisted URL');
+      return;
+    }
+    localStorage.setItem('api_base', normalized);
+    location.href = '?api=' + encodeURIComponent(normalized);
   };
   $('#btnRefresh').onclick = () => {
     renderHealth();
@@ -189,6 +243,14 @@ function bind() {
     loadOrdenes();
     loadStock();
   };
+  $('#ordenTable').addEventListener('click', event => {
+    const button = event.target.closest('.bff-btn');
+    if (button) bff(Number(button.dataset.ordenId));
+  });
+  $('#detailsLink').addEventListener('click', event => {
+    event.preventDefault();
+    api('/api/v1/productos/health/details').then(r => alert(JSON.stringify(r.body, null, 2)));
+  });
   $('#prodForm').onsubmit = createProducto;
   $('#ordenForm').onsubmit = createOrden;
   $('#stockForm').onsubmit = createStock;
