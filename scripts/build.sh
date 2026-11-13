@@ -29,14 +29,15 @@ IMAGE_TAG="sha-${GIT_SHA}"
 SERVICES=("productos" "ordenes" "stock" "gateway" "nginx" "migrations")
 
 # Fase 2: servicios usan root context para incluir packages/shared (monorepo).
-# nginx/migrations mantienen contexto propio.
+# nginx mantiene contexto propio. migrations también usa la raíz porque su
+# Dockerfile copia migrations/* y certs/* (rutas root-relative).
 declare -A BUILD_CONTEXTS=(
   [productos]="."
   [ordenes]="."
   [stock]="."
   [gateway]="."
   [nginx]="nginx"
-  [migrations]="migrations"
+  [migrations]="."
 )
 
 declare -A DOCKERFILES=(
