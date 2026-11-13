@@ -7,6 +7,7 @@
 
 const express = require('express');
 
+const { diagnosticsEnabled } = require('./config');
 const { isDraining } = require('./lifecycle');
 
 function createHealthRouter(opts = {}) {
@@ -97,6 +98,12 @@ function createHealthRouter(opts = {}) {
   });
 
   router.get('/details', async (req, res) => {
+    // Pool stats, memory and draining state are operational diagnostics, not
+    // readiness. In production ENABLE_DIAGNOSTICS defaults to false and the
+    // route must be indistinguishable from a missing route.
+    if (!diagnosticsEnabled()) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'route not found' } });
+    }
     const start = Date.now();
     let dbStatus = 'unknown';
     let latencyMs;
