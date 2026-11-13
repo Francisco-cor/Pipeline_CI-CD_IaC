@@ -1,65 +1,133 @@
 # SPDX-License-Identifier: MIT
 version: 2
+
+# One grouped PR per directory instead of one PR per dependency, checked
+# monthly. Weekly runs accumulated ~30 open PRs that nothing merged, and each
+# rebase re-triggered the full CI pipeline.
+# `rebase-strategy: disabled` stops Dependabot from pushing to open PRs just
+# because main moved, which was another source of repeated runs.
 updates:
   # Root workspace — release toolchain and shared packages
   - package-ecosystem: npm
     directory: /
-    schedule: { interval: weekly, day: monday, time: '06:00' }
+    schedule: { interval: monthly }
     labels: [deps, npm]
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 2
+    rebase-strategy: disabled
+    groups:
+      root-npm:
+        patterns: ['*']
 
-  # npm — Node services + migrations
+  # npm — Node services + migrations. Each directory is a separate Dependabot
+  # target, so grouping keeps it to one PR per service.
   - package-ecosystem: npm
     directory: /services/productos
-    schedule: { interval: weekly, day: monday, time: '06:00' }
+    schedule: { interval: monthly }
     labels: [deps, npm]
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    rebase-strategy: disabled
+    groups:
+      productos-npm:
+        patterns: ['*']
+
   - package-ecosystem: npm
     directory: /services/ordenes
-    schedule: { interval: weekly, day: monday, time: '06:00' }
+    schedule: { interval: monthly }
     labels: [deps, npm]
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    rebase-strategy: disabled
+    groups:
+      ordenes-npm:
+        patterns: ['*']
+
   - package-ecosystem: npm
     directory: /services/stock
-    schedule: { interval: weekly, day: monday, time: '06:00' }
+    schedule: { interval: monthly }
     labels: [deps, npm]
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    rebase-strategy: disabled
+    groups:
+      stock-npm:
+        patterns: ['*']
+
   - package-ecosystem: npm
     directory: /migrations
-    schedule: { interval: weekly, day: monday, time: '06:00' }
+    schedule: { interval: monthly }
     labels: [deps, npm]
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
+    rebase-strategy: disabled
+    groups:
+      migrations-npm:
+        patterns: ['*']
 
-  # Docker — nginx + node bases
+  # Docker — nginx + node bases. Major base-image bumps (e.g. node 24 -> 25)
+  # are ignored on purpose: they change the runtime and were sitting open
+  # without a merge path.
   - package-ecosystem: docker
     directory: /services/productos
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
     labels: [deps, docker]
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
+
   - package-ecosystem: docker
     directory: /services/ordenes
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
     labels: [deps, docker]
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
+
   - package-ecosystem: docker
     directory: /services/stock
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
     labels: [deps, docker]
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
+
   - package-ecosystem: docker
     directory: /nginx
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
     labels: [deps, docker]
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled
+
   - package-ecosystem: docker
     directory: /migrations
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
     labels: [deps, docker]
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
 
-  # Terraform
+  # Terraform — providers grouped into one PR
   - package-ecosystem: terraform
     directory: /terraform
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
     labels: [deps, terraform]
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled
+    groups:
+      terraform-providers:
+        patterns: ['*']
 
-  # GitHub Actions
+  # GitHub Actions — all action bumps in one PR
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
     labels: [deps, github-actions]
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled
+    groups:
+      github-actions:
+        patterns: ['*']
