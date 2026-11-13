@@ -35,10 +35,12 @@ on:
   pull_request:
     branches: [main]
 
-# 6.1 concurrency — cancela runs previos del mismo branch/workflow
+# 6.1 concurrency — cancela runs previos del mismo branch/workflow.
+# Only supersede PR runs: cancelling a main run could kill an in-flight
+# deploy halfway through. Main runs queue instead.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   AWS_REGION: us-east-2
@@ -105,6 +107,9 @@ jobs:
               - 'nginx/**'
             migrations:
               - 'migrations/**'
+              # The migrations image is built from the repo root, so changes
+              # to the ignore rules can break it without touching migrations/.
+              - '.dockerignore'
             terraform:
               - 'terraform/**'
             any_service:
@@ -209,6 +214,40 @@ jobs:
           echo "- prettier --check passed" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
+  # Job 1b.1: Build migrations image (PR only)
+  # The migrations Dockerfile COPYs root-relative paths (migrations/*, certs/*),
+  # so it must be built with context=., never context=migrations. Building it on
+  # PRs catches that class of breakage before it reaches main.
+  # ---------------------------------------------------------------------------
+  migrations-build:
+    name: Build migrations image
+    needs: [changes]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Build migrations (no push)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: migrations/Dockerfile
+          push: false
+          tags: migrations:ci-pr
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Migrations image" >> $GITHUB_STEP_SUMMARY
+          echo "- built from context=. (root) without pushing" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
   # Job 1c: npm audit (Fase 8.7) — fail on HIGH in backend workspaces
   # The root lockfile aggregates every workspace, so a single audit covers
   # productos/ordenes/stock/gateway without four installs.
@@ -290,7 +329,9 @@ jobs:
 
       - name: Upload Trivy FS SARIF
         uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
-        if: always()
+        # The scan fails closed (exit-code 1) before writing SARIF when Trivy
+        # errors early; only upload when the file exists.
+        if: always() && hashFiles('trivy-fs.sarif') != ''
         with:
           sarif_file: trivy-fs.sarif
 
@@ -466,7 +507,8 @@ jobs:
         working-directory: terraform
 
       - name: TFLint
-        run: tflint --recursive --format compact
+        # Warnings stay visible in the log but only errors block the PR.
+        run: tflint --recursive --format compact --minimum-failure-severity=error
         working-directory: terraform
 
       - name: Checkov (sarif)
@@ -481,7 +523,8 @@ jobs:
 
       - name: Upload Checkov SARIF
         uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
-        if: always()
+        # Checkov exits before writing the SARIF on framework errors.
+        if: always() && hashFiles('checkov.sarif') != ''
         with:
           sarif_file: checkov.sarif
 
@@ -656,7 +699,8 @@ jobs:
         if: needs.changes.outputs.migrations == 'true'
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
-          context: migrations
+          # Root context: migrations/Dockerfile copies migrations/* and certs/*.
+          context: .
           file: migrations/Dockerfile
           push: true
           tags: |
@@ -738,8 +782,11 @@ jobs:
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
+        # A failed scan may exit before producing the SARIF, and skipped
+        # services never produce one; guard on both.
         if: |
-          always() && (
+          always() &&
+          hashFiles(format('trivy-image-{0}.sarif', matrix.service)) != '' && (
             (matrix.service == 'productos' && needs.changes.outputs.productos == 'true') ||
             (matrix.service == 'ordenes' && needs.changes.outputs.ordenes == 'true') ||
             (matrix.service == 'stock' && needs.changes.outputs.stock == 'true') ||
@@ -798,3 +845,44 @@ jobs:
           echo "## Deploy — ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- cluster: ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-cluster" >> $GITHUB_STEP_SUMMARY
           echo "- image: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Job 6: Aggregate required check.
+  # Branch protection should require only this job: adding a new job to the
+  # pipeline does not require editing the protection rule, and a failed or
+  # cancelled dependency cannot be masked by the others. `skipped` is fine
+  # (e.g. deploy never runs on PRs, build is skipped when nothing changed).
+  # ---------------------------------------------------------------------------
+  ci-required:
+    name: CI required
+    needs:
+      - changes
+      - lint
+      - format
+      - migrations-build
+      - audit
+      - gitleaks
+      - trivy-fs
+      - test
+      - e2e
+      - terraform
+      - build
+      - trivy-image
+      - deploy
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check dependency results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          failures=$(echo "$NEEDS" | jq -r \
+            'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | "\(.key)=\(.value.result)"')
+          if [ -n "$failures" ]; then
+            echo "Required jobs failed or were cancelled:" >&2
+            echo "$failures" >&2
+            exit 1
+          fi
+          echo "All required jobs passed or were skipped."

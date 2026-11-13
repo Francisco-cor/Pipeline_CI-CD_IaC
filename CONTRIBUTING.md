@@ -26,7 +26,7 @@ docker compose down -v
 # Terraform (Fase 6.4)
 terraform -chdir=terraform fmt -check -recursive
 terraform -chdir=terraform init -backend=false && terraform -chdir=terraform validate
-tflint --init --chdir=terraform && tflint --recursive --chdir=terraform  # requiere tflint
+tflint --init --chdir=terraform && tflint --recursive --chdir=terraform --minimum-failure-severity=error  # requiere tflint
 checkov -d terraform --quiet  # requiere checkov
 
 # Sec (Fase 6.3)
@@ -41,7 +41,7 @@ make verify  # lint + format-check + compose config + tf fmt/validate
 
 - **Commits:** `tipo(scope): mensaje` — `feat`, `fix`, `chore`, `docs`, `ci`, `infra`, `sec`, `test`, `refactor`.
 - **Ramas:** `feat/<scope>` `fix/<scope>` `chore/<scope>` desde `main`.
-- **PRs:** 1 PR = 1 fase o 1 scope, CI debe estar verde (`pipeline.yml:18-711` Fase 6: concurrency + gitleaks/trivy + tflint/checkov + plan comment).
+- **PRs:** 1 PR = 1 fase o 1 scope, CI debe estar verde. El required check es `ci-required` en `pipeline.yml` (agrega todos los jobs; `skipped` no bloquea). Fase 6: concurrency PR-only + gitleaks/trivy + tflint/checkov.
 - **Formato:** Prettier + ESLint (`eslint:recommended` + `plugin:import/recommended` en `.eslintrc.js:8`) con `eslint --cache` (`pipeline.yml:130-134`). No commitear sin `npm run lint -- --cache` + `npx prettier --check`.
 
 ## Infra (Terraform)

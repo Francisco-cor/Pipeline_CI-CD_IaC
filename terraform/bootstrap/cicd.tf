@@ -17,8 +17,7 @@
 #
 # Usage (one-time, per AWS account):
 #   cd terraform/bootstrap
-#   terraform init -backend-config=../environments/backend-dev.hcl \
-#     -backend-config="key=bootstrap.tfstate"
+#   terraform init -backend-config=../environments/backend-bootstrap-dev.hcl
 #   terraform apply
 #   terraform output github_actions_role_arn
 # Then store that value as the AWS_ROLE_ARN repository secret.
@@ -36,6 +35,12 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = [data.tls_certificate.github_actions.certificates[0].sha1_fingerprint]
+
+  # This provider is shared by every workflow. Replacing it would break all
+  # GitHub Actions authentication until the role trust is recreated.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Trust policy: restrict which GitHub repos and ref patterns can assume this role.
@@ -58,14 +63,25 @@ data "aws_iam_policy_document" "github_actions_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Scope to this specific GitHub repository and protected main branch.
+    # Scope to this specific GitHub repository's protected main branch.
     # Pull requests, including those opened from forks, never receive AWS
     # credentials. Terraform PR checks therefore run without backend access.
+    #
+    # Jobs that declare `environment:` do NOT get a `ref:refs/heads/main`
+    # subject; GitHub mints `repo:<owner>/<repo>:environment:<name>` instead.
+    # The trusted plan and the teardown run in such environments, so those
+    # subjects must be listed explicitly (no wildcard, failing closed).
     # var.github_repo format: "owner/repo-name"
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
+      values = [
+        "repo:${var.github_repo}:ref:refs/heads/main",
+        "repo:${var.github_repo}:environment:terraform-dev",
+        "repo:${var.github_repo}:environment:terraform-staging",
+        "repo:${var.github_repo}:environment:terraform-prod",
+        "repo:${var.github_repo}:environment:destroy",
+      ]
     }
   }
 }
@@ -74,6 +90,13 @@ resource "aws_iam_role" "github_actions" {
   name               = "${var.project_name}-${var.environment}-github-actions"
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume.json
   description        = "Assumed by GitHub Actions via OIDC for CI/CD - no long-lived keys"
+
+  # Losing this role locks every workflow out of AWS (the failure that
+  # motivated splitting bootstrap from the app stack). Require an explicit
+  # manual step to remove it.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Minimal permissions for the CI/CD pipeline:
@@ -237,6 +260,10 @@ resource "aws_iam_role_policy" "github_actions" {
   name   = "github-actions-cicd"
   role   = aws_iam_role.github_actions.id
   policy = data.aws_iam_policy_document.github_actions_permissions.json
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 output "github_actions_role_arn" {

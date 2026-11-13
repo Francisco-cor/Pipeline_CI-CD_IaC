@@ -51,6 +51,16 @@ updates:
         patterns: ['*']
 
   - package-ecosystem: npm
+    directory: /services/gateway
+    schedule: { interval: monthly }
+    labels: [deps, npm]
+    open-pull-requests-limit: 2
+    rebase-strategy: disabled
+    groups:
+      gateway-npm:
+        patterns: ['*']
+
+  - package-ecosystem: npm
     directory: /migrations
     schedule: { interval: monthly }
     labels: [deps, npm]
@@ -94,6 +104,16 @@ updates:
         update-types: ['version-update:semver-major']
 
   - package-ecosystem: docker
+    directory: /services/gateway
+    schedule: { interval: monthly }
+    labels: [deps, docker]
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: docker
     directory: /nginx
     schedule: { interval: monthly }
     labels: [deps, docker]
@@ -119,6 +139,17 @@ updates:
     rebase-strategy: disabled
     groups:
       terraform-providers:
+        patterns: ['*']
+
+  # Terraform — bootstrap identity root (separate state)
+  - package-ecosystem: terraform
+    directory: /terraform/bootstrap
+    schedule: { interval: monthly }
+    labels: [deps, terraform]
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled
+    groups:
+      terraform-bootstrap-providers:
         patterns: ['*']
 
   # GitHub Actions — all action bumps in one PR

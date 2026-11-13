@@ -62,11 +62,7 @@ jobs:
             -no-color \
             -var-file="environments/${{ inputs.environment }}.tfvars" \
             -out=tfplan
+          # Do not upload the binary plan: this repo is public and tfplan
+          # embeds sensitive values such as the RDS password. The summary
+          # below uses `terraform show`, which redacts sensitive attributes.
           terraform show -no-color tfplan >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload plan artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: terraform-plan-${{ inputs.environment }}
-          path: terraform/tfplan
-          retention-days: 7

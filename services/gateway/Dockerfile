@@ -9,7 +9,7 @@ COPY services/stock/package.json ./services/stock/package.json
 COPY migrations/package.json ./migrations/package.json
 COPY packages/shared/src ./packages/shared/src
 COPY services/gateway/src ./services/gateway/src
-RUN npm ci --ignore-scripts
+RUN npm ci --omit=dev --ignore-scripts
 
 FROM node:24-alpine AS runtime
 WORKDIR /app

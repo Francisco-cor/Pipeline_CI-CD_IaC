@@ -34,8 +34,9 @@ terraform plan -var-file=environments/prod.tfvars -no-color -detailed-exitcode; 
 
 ### 2. CI — validación de PR y plan confiable
 
-- `pipeline.yml:346-460` corre `fmt -check` → `validate` → `tflint` → `checkov`
-  en cada PR, sin backend ni credenciales AWS.
+- `pipeline.yml` (job `terraform`) corre `fmt -check` → `validate` →
+  `tflint --minimum-failure-severity=error` → `checkov` en cada PR, sin backend
+  ni credenciales AWS.
 - `.github/workflows/terraform-plan.yml` ejecuta el plan remoto manualmente desde
   `main`, con OIDC y un GitHub Environment protegido por entorno.
 - Revisa el artefacto/summary del plan: si hay `~ aws_ecs_service.app` con
@@ -81,8 +82,8 @@ aws rds create-db-snapshot --db-instance-identifier erp-pipeline-prod-postgres -
 ## Prevención
 
 - No editar infra manualmente en consola — todo via `terraform` + PR
-- PRs requieren `Terraform checks` verde (`tflint` + `checkov`); el plan remoto se
-  ejecuta con aprobación desde `main`.
+- PRs requieren el check agregado `ci-required` verde (`tflint` + `checkov`
+  incluidos); el plan remoto se ejecuta con aprobación desde `main`.
 - `teardown.yml:1-70` tiene prod guard (`if: environment != 'prod'`) — nunca destruye prod automáticamente. El schedule requiere `vars.AUTO_CLEANUP_ENABLED == 'true'`; la identidad OIDC vive en `terraform/bootstrap/` (`docs/runbooks/bootstrap.md`).
 - `enable_deletion_protection=true` en `terraform/environments/prod.tfvars:12` + `terraform/modules/database/main.tf:115-118` impide `terraform destroy` accidental
 
@@ -98,7 +99,7 @@ terraform plan -var-file=environments/prod.tfvars -no-color | grep "No changes" 
 
 # O en una línea (Fase 7 métrica):
 terraform -chdir=terraform plan -var-file=environments/prod.tfvars -no-color | head -n 20
-terraform -chdir=terraform validate && tflint --chdir=terraform --recursive --format compact && echo "tflint 0 warnings"
+terraform -chdir=terraform validate && tflint --chdir=terraform --recursive --format compact --minimum-failure-severity=error && echo "tflint 0 errors"
 ```
 
 ## Troubleshooting

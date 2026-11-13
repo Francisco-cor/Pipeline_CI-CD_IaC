@@ -89,18 +89,20 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 
 ## CI/CD (Fase 6 + 7)
 
-- **Concurrency:** `pipeline.yml:38-40` `group: workflow-ref` + `cancel-in-progress: true` (Fase 6.1) + `teardown.yml:15` `concurrency: teardown-ref` (Fase 7.8).
+- **Concurrency:** `pipeline.yml` `concurrency.group: workflow-ref` + `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` (Fase 6.1): solo se cancelan PRs obsoletos, un push a `main` encola para no cortar un deploy. `teardown.yml` usa `teardown-ref` (Fase 7.8).
 - **Changes:** `pipeline.yml` `dorny/paths-filter@v3` → `productos/ordenes/stock/gateway/nginx/migrations/any_service` + `code`/`e2e`; `audit/test/trivy-fs/terraform/e2e` se saltean si no cambió el código (Fase 6.7).
 - **Lint:** `pipeline.yml` un solo job root + `eslint --cache` sobre workspaces + `actions/cache .eslintcache` + summary (Fase 6.5).
 - **Format:** `pipeline.yml` `prettier --check` (Fase 6.5).
 - **Sec:** `pipeline.yml:182-235` `gitleaks/gitleaks-action@v2` + `aquasecurity/trivy-action fs` SARIF → code scanning (Fase 6.3).
 - **Test:** `pipeline.yml` matrix `postgres:15` (solo si `code` cambió), `jest --coverage`, `upload-artifact coverage-*`, summary + `needs: [lint,format]` (Fase 6.6).
 - **e2e:** `pipeline.yml` `docker compose -f docker-compose.yml up --build --wait` + `scripts/e2e.sh`, sin el override de desarrollo (Fase 4.8).
-- **Terraform PR:** `pipeline.yml:346-460` `fmt -check` → `init -backend=false` → `validate` → `tflint --init/--recursive` (`terraform/.tflint.hcl:1` `plugin aws 0.38.0`) → `checkov` SARIF, sin backend ni credenciales AWS para PRs no confiables (Fase 6.4).
-- **Build:** `pipeline.yml:467-613` `if: push main && any_service` → `docker/setup-buildx-action@v3` + `docker/build-push-action@v6` per-service `if: productos==true` con `cache-from/to: type=gha,mode=max` → ECR `:sha-<short>` + `:latest` (Fase 6.2 + 6.7).
+- **Terraform PR:** `pipeline.yml` `fmt -check` → `init -backend=false` → `validate` → `tflint --init/--recursive --minimum-failure-severity=error` (`terraform/.tflint.hcl` `plugin aws 0.38.0`) → `checkov` SARIF, sin backend ni credenciales AWS para PRs no confiables (Fase 6.4). Los `upload-sarif` están guardados por `hashFiles(...) != ''`.
+- **Build:** `pipeline.yml` `if: push main && any_service` → `docker/setup-buildx-action@v3` + `docker/build-push-action@v6` per-service `if: productos==true` con `cache-from/to: type=gha,mode=max` → ECR `:sha-<short>` + `:latest` (Fase 6.2 + 6.7). `migrations` se construye con `context: .` porque su Dockerfile copia rutas root-relative (`migrations/*`, `certs/*`); el job PR `migrations-build` valida ese contexto con `push: false`.
 - **Trivy image:** `pipeline.yml:619-672` matrix post-build `trivy image CRITICAL,HIGH` SARIF con gate bloqueante (Fase 6.3).
-- **Deploy:** `pipeline.yml:679-711` `scripts/deploy.sh:1` hardened lock+digest+rollback detect (`flock`, `ecr describe-images`, `register`, `wait services-stable`, rollback check) solo si `build` OK (Fase 7.7).
-- **Teardown:** `teardown.yml:1-70` `schedule 23 UTC` (solo si `vars.AUTO_CLEANUP_ENABLED == 'true'`) + `workflow_dispatch` `confirm=destroy` + `environment=destroy` + prod guard `if: environment != prod` + `init -backend-config=environments/backend-*.hcl` + `destroy -var-file=environments/*.tfvars` (Fase 7.8). La identidad OIDC vive en `terraform/bootstrap/` y no se destruye (`docs/runbooks/bootstrap.md`).
+- **Deploy:** `pipeline.yml` `deploy` + `scripts/deploy.sh` hardened lock+digest+rollback detect (`flock`, `ecr describe-images`, `register`, `wait services-stable`, rollback check) solo si `build` OK (Fase 7.7).
+- **Release:** `release.yml` se dispara por `workflow_run` sobre `CI/CD Pipeline` (`types: [completed]`) y exige `conclusion=success`, `event=push`, `head_branch=main`; hace checkout de `head_sha` y corre `npm ci` + `semantic-release`. `workflow_dispatch` se mantiene para reintentos manuales (ref por defecto). Así un release nunca corre en paralelo con el CI que lo valida.
+- **Required check:** `ci-required` en `pipeline.yml` hace `needs` de todos los jobs y falla si algún `needs.*.result` es `failure`/`cancelled` (`skipped` OK). Branch protection debe exigir solo ese check.
+- **Teardown:** `teardown.yml` `schedule 23 UTC` (solo si `vars.AUTO_CLEANUP_ENABLED == 'true'`) + `workflow_dispatch` `confirm=destroy` + `environment=destroy` + prod guard `if: environment != prod` + `init -backend-config=environments/backend-*.hcl` + `destroy -var-file=environments/*.tfvars` (Fase 7.8). La identidad OIDC vive en `terraform/bootstrap/` con `prevent_destroy` y backend propio (`environments/backend-bootstrap-*.hcl`, `key=bootstrap.tfstate`); no se destruye (`docs/runbooks/bootstrap.md`).
 
 ## Observabilidad (Fase 9) + Scale metrics (Fase 10)
 
@@ -144,7 +146,7 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 - **Demo:** `docs/demo.md:1` loom + `docs/screenshots/demo.gif` + refresh `aws_console.png/cloudwatch.png/github_actions.png/json_*.png` + `docs/screenshots` tabla (Fase 11.3).
 - **Badges:** `README.md:3` coverage `>80%` + OpenAPI 3.1 + trivy + prettier + release + demo (`pipeline.yml` `coverage` Fase 4.7 + `trivy` Fase 6.3).
 - **ADRs:** `docs/adr/ADR-005-monorepo-shared-kernel.md:1` (Fase 2) + `ADR-006-openapi-versioning.md:1` (Fase 3) + `ADR-README` index (Fase 11.5).
-- **Release:** `package.json:12` `release` `semantic-release` + `CHANGELOG.md:1` + `.releaserc.json:1` (`commit-analyzer/changelog/github/git`) + `.github/workflows/release.yml:1` push `main` tag `v*` (Fase 11.6).
+- **Release:** `package.json` `release` `semantic-release` + `CHANGELOG.md` + `.releaserc.json` (`commit-analyzer/changelog/github/git`). `.github/workflows/release.yml` ya no corre en cada push: se gatilla por `workflow_run` de `CI/CD Pipeline` y solo publica tags `v*` si ese run fue un push exitoso a `main` (Fase 11.6).
 - **Interview:** `docs/interview.md:1` 17 Q&A rollback/FinOps/decoupling/cache/BFF/WAF/observabilidad (Fase 11.7) — 30m prep senior.
 - Ver `docs/interview.md:7` “¿Por qué monorepo?” + `docs/demo.md:70` comandos demo.
 
@@ -166,4 +168,4 @@ Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → produ
 - `docs/demo.md:1` — 2m demo loom + `frontend/index.html` `http://localhost:8080` + `GET /ordenes/:id?include=producto` BFF (Fase 11.3)
 - `docs/interview.md:1` — 17 Q&A rollback/FinOps/BFF/cache/WAF (Fase 11.7)
 - `docs/adr/ADR-005-monorepo-shared-kernel.md:1` + `ADR-006-openapi-versioning.md:1` — monorepo + OpenAPI (Fase 11.5)
-- `.releaserc.json:1` + `CHANGELOG.md:1` + `.github/workflows/release.yml:1` — semantic-release tags `v*` (Fase 11.6)
+- `.releaserc.json` + `CHANGELOG.md` + `.github/workflows/release.yml` — semantic-release tags `v*` solo tras un `workflow_run` exitoso de `CI/CD Pipeline` en `main` (Fase 11.6)
