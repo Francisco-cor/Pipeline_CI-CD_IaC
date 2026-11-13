@@ -11,20 +11,25 @@
 
 ## Health
 
-| Endpoint                                    | Descripción                                             |
-| ------------------------------------------- | ------------------------------------------------------- |
-| `GET /health`                               | NGINX liveness                                          |
-| `GET /api/productos/health`                 | readiness (DB `SELECT 1`) — ECS usa este                |
-| `GET /api/v1/productos/health`              | alias versioned                                         |
-| `GET /health/live`                          | liveness sin DB (`uptime_s`) — Fase 3.8                 |
-| `GET /health/ready`                         | readiness (DB) — usar para k8s/ECS `healthCheck` futuro |
-| `GET /api/productos/health/live` y `/ready` | via NGINX                                               |
+| Endpoint                                    | Descripción                                      |
+| ------------------------------------------- | ------------------------------------------------ |
+| `GET /health`                               | NGINX liveness                                   |
+| `GET /api/productos/health`                 | readiness (DB `SELECT 1`) — alias legacy         |
+| `GET /api/v1/productos/health`              | alias versioned                                  |
+| `GET /health/live`                          | liveness sin DB (`uptime_s`) — ECS `healthCheck` |
+| `GET /health/ready`                         | readiness (DB + draining) — 503 durante shutdown |
+| `GET /api/productos/health/live` y `/ready` | via NGINX                                        |
+
+El contenedor usa `/health/live` para liveness (un failover de RDS no debe reiniciar
+la tarea en bucle). `/health/ready` devuelve 503 mientras el proceso drena tras
+`SIGTERM`; el ALB deja de enviar tráfico antes de cerrar el server.
 
 ## Paginación (Fase 3.7)
 
 `GET /api/v1/productos?page=1&limit=20&sort=created_at_desc`
 
-- `page` >=1 default 1, `limit` 1..100 default 20, `sort` `created_at_desc|created_at_asc`
+- `page` 1..10000 default 1, `limit` 1..100 default 20, `sort` `created_at_desc|created_at_asc`
+- El orden es determinístico (`created_at, id`) y usa índices compuestos (`010_pagination_indexes.sql`).
 - Headers: `X-Total-Count`, `X-Page`, `X-Limit`, `X-Total-Pages`, `Link: <...>; rel="next"`
 - Body compat: `{ data: [], count: <pageSize>, total, page, limit }` — `count` mantenido para tests antiguos.
 
@@ -32,11 +37,40 @@
 
 Zod en `packages/shared/src/validate.js:8-35` + `validate(schema)` middleware.
 
-- `POST /api/v1/productos` → `productoSchema` (`nombre` string 1-255, `precio` coerce number >=0, `stock` int >=0 default 0)
-- `POST /api/v1/ordenes` → `ordenSchema` (`producto_id` int +, `cantidad` int +, `total` number >=0) + FK check 404
-- `POST /api/v1/stock` → `stockSchema` (`tipo` enum)
+- `POST /api/v1/productos` → `productoCreateSchema` (`nombre` 1-255, `precio` 0..99999999.99, `stock` inicial opcional)
+- `PUT /api/v1/productos/:id` → `productoUpdateSchema` (solo `nombre`/`precio`; **nunca** `stock`)
+- `POST /api/v1/ordenes` → `ordenSchema` (`producto_id`, `cantidad`; `total` es advisory y se calcula en servidor)
+- `POST /api/v1/stock` → `stockSchema` (`tipo` enum, `cantidad` 1..2147483647)
 
 Error 400 → `{ error: { code: "VALIDATION_ERROR", message, details:[{path,message,code}], requestId } }`
+
+## Stock como ledger
+
+`productos.stock` es una proyección de `movimientos_stock`, no un campo editable:
+
+- `POST /productos` con `stock>0` inserta el producto en 0 y un movimiento `entrada` inicial en la misma transacción.
+- `PUT /productos/:id` ignora `stock`; para ajustar inventario usar `POST /stock`.
+- `POST /ordenes` inserta `salida` en la misma transacción que la orden, bajo `SELECT ... FOR UPDATE`; si no hay stock devuelve `409 STOCK_CONFLICT` y no crea la orden.
+- El trigger `005_stock_invariant.sql` es el único escritor de `productos.stock`; un consumer SQS no vuelve a descontar.
+
+## Idempotencia
+
+`POST /api/v1/ordenes` y `POST /api/v1/stock` aceptan `Idempotency-Key`.
+
+- Misma key + mismo body → se replaya la respuesta original (`Idempotent-Replayed: true`).
+- Misma key + body distinto → `409 IDEMPOTENCY_KEY_REUSED`.
+- Key en progreso → `409 IDEMPOTENCY_IN_PROGRESS` con `Retry-After`.
+- Las respuestas 5xx liberan la key; TTL de limpieza 24 h (`IDEMPOTENCY_TTL_HOURS`).
+
+## Errores de dominio
+
+| Código                    | HTTP | Cuándo                                           |
+| ------------------------- | ---- | ------------------------------------------------ |
+| `STOCK_CONFLICT`          | 409  | salida/orden sin stock suficiente                |
+| `CONFLICT`                | 409  | unique/FK constraint (`23505`/`23503`)           |
+| `VALIDATION_ERROR`        | 400  | Zod, JSON malformado, overflow (`22P02`/`22003`) |
+| `IDEMPOTENCY_KEY_REUSED`  | 409  | misma key con otro body                          |
+| `IDEMPOTENCY_IN_PROGRESS` | 409  | request original aún en vuelo                    |
 
 ## Fix falsy (Fase 3.4)
 
@@ -84,11 +118,18 @@ curl -X POST http://localhost:80/api/v1/productos \
 # Orden con FK 404
 curl -X POST http://localhost:80/api/v1/ordenes \
   -H "Content-Type: application/json" \
-  -d '{"producto_id":9999,"cantidad":2,"total":100}' | jq
+  -d '{"producto_id":9999,"cantidad":2}' | jq
 
-# Stock
+# Orden idempotente: reintentar con la misma key devuelve la misma orden
+curl -X POST http://localhost:80/api/v1/ordenes \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: orden-2026-0001" \
+  -d '{"producto_id":1,"cantidad":2}' | jq
+
+# Stock (el PUT de productos ya no cambia stock; usar movimientos)
 curl -X POST http://localhost:80/api/v1/stock \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: stock-2026-0001" \
   -d '{"producto_id":1,"cantidad":5,"tipo":"entrada"}' | jq
 ```
 
