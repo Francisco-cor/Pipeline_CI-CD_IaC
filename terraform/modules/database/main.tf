@@ -67,6 +67,14 @@ resource "aws_db_parameter_group" "postgres" {
     value = "pg_stat_statements"
   }
 
+  # Enforce TLS for every client connection. The application already connects
+  # with SSL in production; this makes a plaintext connection fail instead of
+  # silently downgrading. See docs/security/rotation.md.
+  parameter {
+    name  = "rds.force_ssl"
+    value = "1"
+  }
+
   lifecycle {
     create_before_destroy = true
   }

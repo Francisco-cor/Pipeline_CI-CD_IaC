@@ -55,12 +55,17 @@
       { "name": "NODE_ENV", "value": "${environment}" },
       { "name": "PORT", "value": "3001" },
       { "name": "SERVICE_NAME", "value": "svc-productos" },
+      { "name": "AUTH_ENABLED", "value": "${auth_enabled}" },
+%{ if redis_secret_arn == "" }
       { "name": "REDIS_URL", "value": "${redis_url}" },
+%{ endif }
       { "name": "CACHE_TTL", "value": "${cache_ttl}" },
       { "name": "CACHE_ENABLED", "value": "true" }
     ],
     "secrets": [
-      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
+      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" },
+      { "name": "JWT_SECRET", "valueFrom": "${jwt_secret_arn}" }%{ if redis_secret_arn != "" },
+      { "name": "REDIS_URL", "valueFrom": "${redis_secret_arn}" }%{ endif }
     ],
     "healthCheck": {
       "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health/live || exit 1"],
@@ -89,13 +94,15 @@
       { "name": "NODE_ENV", "value": "${environment}" },
       { "name": "PORT", "value": "3002" },
       { "name": "SERVICE_NAME", "value": "svc-ordenes" },
+      { "name": "AUTH_ENABLED", "value": "${auth_enabled}" },
       { "name": "PRODUCTOS_URL", "value": "${productos_url}" },
       { "name": "SQS_QUEUE_URL", "value": "${sqs_queue_url}" },
       { "name": "CIRCUIT_FAILURE_THRESHOLD", "value": "5" },
       { "name": "CIRCUIT_TIMEOUT_MS", "value": "10000" }
     ],
     "secrets": [
-      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
+      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" },
+      { "name": "JWT_SECRET", "valueFrom": "${jwt_secret_arn}" }
     ],
     "healthCheck": {
       "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health/live || exit 1"],
@@ -124,12 +131,17 @@
       { "name": "NODE_ENV", "value": "${environment}" },
       { "name": "PORT", "value": "3003" },
       { "name": "SERVICE_NAME", "value": "svc-stock" },
+      { "name": "AUTH_ENABLED", "value": "${auth_enabled}" },
+%{ if redis_secret_arn == "" }
       { "name": "REDIS_URL", "value": "${redis_url}" },
+%{ endif }
       { "name": "SQS_QUEUE_URL", "value": "${sqs_queue_url}" },
       { "name": "CACHE_TTL", "value": "${cache_ttl}" }
     ],
     "secrets": [
-      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
+      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" },
+      { "name": "JWT_SECRET", "valueFrom": "${jwt_secret_arn}" }%{ if redis_secret_arn != "" },
+      { "name": "REDIS_URL", "valueFrom": "${redis_secret_arn}" }%{ endif }
     ],
     "healthCheck": {
       "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health/live || exit 1"],
@@ -158,11 +170,13 @@
       { "name": "NODE_ENV", "value": "${environment}" },
       { "name": "PORT", "value": "3004" },
       { "name": "SERVICE_NAME", "value": "svc-gateway" },
+      { "name": "AUTH_ENABLED", "value": "${auth_enabled}" },
       { "name": "ORDENES_URL", "value": "${ordenes_url}" },
       { "name": "PRODUCTOS_URL", "value": "${productos_url}" }
     ],
     "secrets": [
-      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" }
+      { "name": "DATABASE_URL", "valueFrom": "${db_secret_arn}" },
+      { "name": "JWT_SECRET", "valueFrom": "${jwt_secret_arn}" }
     ],
     "healthCheck": {
       "command": ["CMD-SHELL", "wget -qO- http://127.0.0.1:3004/health/live || exit 1"],

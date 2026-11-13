@@ -77,12 +77,71 @@ Error 400 → `{ error: { code: "VALIDATION_ERROR", message, details:[{path,mess
 - `stock ?? 0` en `productos.js:24` (no `stock || 0` que rompe `stock=0`)
 - `z.coerce.number` + `finite()` para `precio=0` válido (antes `if (!nombre || precio==null)` perdía 0)
 
+## Autenticación y autorización (Fase 2 seguridad)
+
+Las rutas de datos (`/api/productos`, `/api/v1/ordenes`, `/api/v1/stock`, etc.)
+requieren `Authorization: Bearer <JWT>` cuando `AUTH_ENABLED` está activo.
+
+| Rol        | Lecturas | POST/PUT | DELETE |
+| ---------- | -------- | -------- | ------ |
+| `reader`   | ✅       | ❌ 403   | ❌ 403 |
+| `operator` | ✅       | ✅       | ❌ 403 |
+| `admin`    | ✅       | ✅       | ✅     |
+
+- Algoritmos: HS256 con `JWT_SECRET` (default) o RS256 con `JWT_PUBLIC_KEY`.
+- Claims: `sub`, `role`, `tenant_id` (o `tenantId`), `scopes` (array o string).
+- `AUTH_ENABLED` default: `true` en `prod`/`production`, `false` en dev/test.
+  Con auth activa y sin clave de verificación el servicio **no arranca**
+  (`assertAuthConfig`) o devuelve `503 AUTH_NOT_CONFIGURED` si ya está corriendo.
+- Sin token / token inválido → `401 UNAUTHORIZED` / `INVALID_TOKEN` /
+  `TOKEN_EXPIRED`; rol insuficiente → `403 FORBIDDEN`.
+- Rutas públicas: `GET /` (metadata), `/health`, `/health/live`,
+  `/health/ready`. `/metrics`, `/health/details`, `/_circuit` y `/bff/health`
+  son diagnósticos y devuelven 404 en prod (`ENABLE_DIAGNOSTICS=false`).
+- `scopes` se validan aparte con `requireScope(...)` cuando un endpoint lo
+  necesita.
+
+### Token local
+
+```bash
+export JWT_SECRET=dev-only-secret
+TOKEN=$(node scripts/issue-token.js --sub alice --role admin --tenant acme)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/productos
+```
+
+### Audit log
+
+Las mutaciones (`POST`/`PUT`/`PATCH`/`DELETE`) se registran en `audit_log`
+(`011_audit_log.sql`) con `actor_sub`, `actor_role`, `tenant_id`, `action`
+(`post:productos`), `resource`, `resource_id`, `status`, `request_id` y
+`metadata` JSONB. El insert es best-effort: si falla, se loguea
+`audit_write_failed` y la respuesta original no se altera. `AUDIT_ENABLED=false`
+desactiva la escritura (no recomendado en prod).
+
+## Seguridad de transporte y borde (Fase 2 seguridad)
+
+- `rds.force_ssl=1` en el parameter group; la app usa `sslmode`/CA bundle en prod.
+- Redis: `rediss://` + AUTH token generado por Terraform, cifrado en tránsito y
+  en reposo; la URL vive en SSM (`/erp/<env>/redis-url`) y ECS la inyecta como
+  secreto.
+- SQS: SSE administrado + política que deniega transporte sin TLS.
+- CORS: `CORS_ORIGIN` es una allowlist separada por comas. En prod sin
+  allowlist no se emite `Access-Control-Allow-Origin` (fail closed); dev/test
+  mantienen `*`.
+- Rate limit detrás del ALB: NGINX configura `real_ip` con rangos privados,
+  `real_ip_header X-Forwarded-For`, `real_ip_recursive on`; el hop BFF reescribe
+  `X-Forwarded-For` con `$remote_addr`. `TRUST_PROXY` configurable
+  (`1` por defecto, `false`, número de hops o CIDRs).
+- NGINX de prod devuelve 404 para `/metrics`, `/health/details`,
+  `/bff/health` y sus alias; `nginx.local.conf` conserva el acceso para dev.
+
 ## Seguridad (Fase 3.5)
 
-- `helmet` + `cors` (`CORS_ORIGIN` env) + `compression` + `requestIdMiddleware` (`uuid`) en `packages/shared/src/middleware.js:11-30`
-- Cada request loguea `requestId` (`services/productos/src/index.js:14-22`)
-- NGINX añade `X-Content-Type-Options`, `X-Frame-Options`, etc. (`nginx.conf:33-36`)
+- `helmet` + `cors` (allowlist `CORS_ORIGIN`) + `compression` + `requestIdMiddleware` (`uuid`) en `packages/shared/src/middleware.js`
+- Cada request loguea `requestId` (`services/productos/src/index.js`)
+- NGINX añade `X-Content-Type-Options`, `X-Frame-Options`, etc. (`nginx.conf`)
 - Response header `X-Request-Id`
+- Diagnósticos gateados por `ENABLE_DIAGNOSTICS` (default false en prod).
 
 ## Errores (Fase 3.6)
 

@@ -13,17 +13,27 @@
       <span class="badge">BFF include=producto</span>
       <span class="badge ok">cache X-Cache</span>
       <div class="controls">
-        <input id="apiInput" placeholder="http://localhost:80" style="width: 210px" />
-        <button id="apiSave">set API</button>
-        <button id="btnRefresh">refresh</button>
+        <input
+          id="apiInput"
+          aria-label="API base URL"
+          placeholder="http://localhost:80"
+          style="width: 210px"
+        />
+        <button id="apiSave" type="button">set API</button>
+        <button id="btnRefresh" type="button">refresh</button>
       </div>
     </header>
 
     <div style="max-width: 1100px; margin: 10px auto; padding: 0 16px" class="muted">
       API_BASE: <code id="apiBase"></code> •
-      <a href="https://github.com/Francisco-cor/Pipeline_CI-CD_IaC" target="_blank">GitHub</a> •
-      <a href="/docs/openapi.yaml" target="_blank">OpenAPI</a> •
-      <a href="/docs/interview.md" target="_blank">interview</a>
+      <a
+        href="https://github.com/Francisco-cor/Pipeline_CI-CD_IaC"
+        target="_blank"
+        rel="noopener noreferrer"
+        >GitHub</a
+      >
+      • <a href="/docs/openapi.yaml" target="_blank" rel="noopener noreferrer">OpenAPI</a> •
+      <a href="/docs/interview.md" target="_blank" rel="noopener noreferrer">interview</a>
     </div>
 
     <main>
@@ -37,16 +47,30 @@
         <div id="prodCache" class="muted">X-Cache —</div>
         <table id="prodTable"></table>
         <form id="prodForm" class="row" style="margin-top: 8px">
-          <input name="nombre" placeholder="nombre *" required style="flex: 1" />
+          <input
+            name="nombre"
+            aria-label="nombre del producto"
+            placeholder="nombre *"
+            required
+            style="flex: 1"
+          />
           <input
             name="precio"
+            aria-label="precio del producto"
             placeholder="precio 0"
             type="number"
             step="0.01"
             value="12.5"
             style="width: 90px"
           />
-          <input name="stock" placeholder="stock" type="number" value="3" style="width: 70px" />
+          <input
+            name="stock"
+            aria-label="stock inicial"
+            placeholder="stock"
+            type="number"
+            value="3"
+            style="width: 70px"
+          />
           <button type="submit">+ crear</button>
         </form>
         <div class="muted">
@@ -59,10 +83,23 @@
         <h2>Ordenes — FK + BFF aggregation</h2>
         <table id="ordenTable"></table>
         <form id="ordenForm" class="row" style="margin-top: 8px">
-          <select id="ordenProdId" name="producto_id" style="flex: 1"></select>
-          <input name="cantidad" placeholder="cant" type="number" value="2" style="width: 70px" />
+          <select
+            id="ordenProdId"
+            name="producto_id"
+            aria-label="producto de la orden"
+            style="flex: 1"
+          ></select>
+          <input
+            name="cantidad"
+            aria-label="cantidad de la orden"
+            placeholder="cant"
+            type="number"
+            value="2"
+            style="width: 70px"
+          />
           <input
             name="total"
+            aria-label="total informativo de la orden"
             placeholder="total"
             type="number"
             step="0.01"
@@ -84,9 +121,21 @@ BFF: click “include” en una orden → GET /api/v1/ordenes/:id?include=produc
         <h2>Stock — TX + invariant</h2>
         <table id="stockTable"></table>
         <form id="stockForm" class="row" style="margin-top: 8px">
-          <select id="stockProdId" name="producto_id" style="flex: 1"></select>
-          <input name="cantidad" placeholder="cant" type="number" value="5" style="width: 70px" />
-          <select name="tipo">
+          <select
+            id="stockProdId"
+            name="producto_id"
+            aria-label="producto del movimiento"
+            style="flex: 1"
+          ></select>
+          <input
+            name="cantidad"
+            aria-label="cantidad del movimiento"
+            placeholder="cant"
+            type="number"
+            value="5"
+            style="width: 70px"
+          />
+          <select name="tipo" aria-label="tipo de movimiento">
             <option value="entrada">entrada</option>
             <option value="salida">salida</option>
           </select>
@@ -105,22 +154,15 @@ BFF: click “include” en una orden → GET /api/v1/ordenes/:id?include=produc
           ><span
             ><code>GET /health/details</code> pool {total,idle,waiting} + <code>uptime_s</code> +
             <code>memory</code> (Fase 9.7) •
-            <a
-              href="#"
-              onclick="
-                api('/api/v1/productos/health/details').then(r =>
-                  alert(JSON.stringify(r.body, null, 2))
-                );
-                return false;
-              "
-              >ver</a
-            ></span
+            <a id="detailsLink" href="#" rel="noopener noreferrer">ver</a></span
           >
           <b>metrics</b
           ><span
             ><code>GET /metrics</code> <code>http_request_duration_ms</code> +
             <code>http_requests_total</code> (Fase 9.3) •
-            <a href="http://localhost:3001/metrics" target="_blank">productos:3001/metrics</a></span
+            <a href="http://localhost:3001/metrics" target="_blank" rel="noopener noreferrer"
+              >productos:3001/metrics</a
+            ></span
           >
           <b>tracing</b
           ><span
@@ -149,7 +191,7 @@ BFF: click “include” en una orden → GET /api/v1/ordenes/:id?include=produc
       </section>
     </main>
 
-    <div id="toast" class="toast"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     <script src="app.js"></script>
   </body>
 </html>

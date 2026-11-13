@@ -27,6 +27,12 @@ variable "db_secret_arn" {
   type        = string
 }
 
+variable "jwt_secret_arn" {
+  description = "ARN of the SSM Parameter containing the JWT signing secret. Injected as JWT_SECRET via ECS secrets."
+  type        = string
+  default     = ""
+}
+
 variable "app_port" {
   description = "TCP port the Node.js application listens on inside the container."
   type        = number
@@ -107,7 +113,13 @@ variable "sqs_queue_arn" {
 }
 
 variable "redis_url" {
-  description = "Fase 10.5 — REDIS_URL para productos cache (vacio si enable_redis=false)."
+  description = "Fase 10.5 — REDIS_URL para productos cache (vacio si enable_redis=false). Solo se usa como fallback sin cifrado; el valor normal llega por SSM."
+  type        = string
+  default     = ""
+}
+
+variable "redis_secret_arn" {
+  description = "SSM parameter ARN with the rediss:// URL + AUTH token. Empty when Redis is disabled; injected via ECS secrets instead of plaintext environment."
   type        = string
   default     = ""
 }

@@ -53,8 +53,20 @@ locals {
   effective_deletion_protection = var.enable_deletion_protection != null ? var.enable_deletion_protection : local.is_prod
   sqs_queue_url                 = var.enable_sqs ? try(aws_sqs_queue.ordenes[0].url, "") : ""
   sqs_queue_arn                 = var.enable_sqs ? try(aws_sqs_queue.ordenes[0].arn, "") : ""
-  redis_endpoint                = var.enable_redis ? try(aws_elasticache_cluster.redis[0].cache_nodes[0].address, "") : ""
-  redis_url                     = var.enable_redis && local.redis_endpoint != "" ? "redis://${local.redis_endpoint}:6379" : ""
+  # Never render the AUTH token into an environment variable: when Redis is
+  # enabled the rediss:// URL is injected from SSM (redis_secret_arn). Keeping
+  # this empty also avoids leaking the token in plan output.
+  redis_url        = ""
+  redis_secret_arn = var.enable_redis ? try(aws_ssm_parameter.redis_url[0].arn, "") : ""
+}
+
+# JWT signing secret for the platform-issued tokens. Generated once and stored
+# as a SecureString; replace with the real identity provider secret when the
+# issuer is external. Never place this value in tfvars or task-definition
+# environment variables.
+resource "random_password" "jwt_secret" {
+  length  = 64
+  special = false
 }
 
 # Fail early on combinations that would create a public ALB while placing the
@@ -105,6 +117,15 @@ resource "terraform_data" "configuration_guard" {
     precondition {
       condition     = var.performance_insights_retention_days <= 7 || local.effective_performance_insights_kms_key_id != null
       error_message = "RDS Performance Insights retention over 7 days requires performance_insights_kms_key_id (a customer-managed KMS key)."
+    }
+
+    precondition {
+      condition = !local.is_prod || (
+        var.alert_email != "" &&
+        can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alert_email)) &&
+        !can(regex("(?i)@example\\.(com|org|net)$", var.alert_email))
+      )
+      error_message = "production requires a real alert_email (non-empty, valid address, not example.com/org/net) so CloudWatch alarms reach an operator."
     }
   }
 }
@@ -162,13 +183,15 @@ module "secrets" {
 
   # Database connection details — used to build the full connection strings
   # stored in SSM so the app only needs one parameter ARN.
-  rds_endpoint   = module.database.rds_endpoint
-  rds_port       = module.database.rds_port
-  rds_db_name    = module.database.rds_db_name
-  rds_username   = module.database.rds_username
-  rds_password   = module.database.rds_password
-  sqs_queue_arn  = local.sqs_queue_arn
-  ssm_kms_key_id = local.customer_managed_kms_key_id
+  rds_endpoint     = module.database.rds_endpoint
+  rds_port         = module.database.rds_port
+  rds_db_name      = module.database.rds_db_name
+  rds_username     = module.database.rds_username
+  rds_password     = module.database.rds_password
+  sqs_queue_arn    = local.sqs_queue_arn
+  redis_secret_arn = local.redis_secret_arn
+  jwt_secret       = random_password.jwt_secret.result
+  ssm_kms_key_id   = local.customer_managed_kms_key_id
 }
 
 # -----------------------------------------------------------------------------
@@ -190,7 +213,8 @@ module "compute" {
 
   # Secret ARN — referenced in the task definition so ECS injects DATABASE_URL
   # as environment variable at container startup (no secrets in task def JSON)
-  db_secret_arn = module.secrets.db_secret_arn
+  db_secret_arn  = module.secrets.db_secret_arn
+  jwt_secret_arn = module.secrets.jwt_secret_arn
 
   # Networking — dev/staging may use public subnets for FinOps; production
   # guards require private subnets behind an ALB with no public task IP.
@@ -211,6 +235,7 @@ module "compute" {
   sqs_queue_url            = local.sqs_queue_url
   sqs_queue_arn            = local.sqs_queue_arn
   redis_url                = local.redis_url
+  redis_secret_arn         = local.redis_secret_arn
   public_subnet_ids        = module.networking.public_subnet_ids
 }
 

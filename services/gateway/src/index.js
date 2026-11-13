@@ -2,14 +2,21 @@
 
 const {
   CircuitBreaker,
+  ROLE_READERS,
+  assertAuthConfig,
+  auditLog,
+  authenticate,
   createLifecycle,
   errorHandler,
   initTracing,
   metricsHandler,
   metricsMiddleware,
   notFoundHandler,
+  requireDiagnostics,
+  requireRole,
   securityMiddleware,
   shutdownTracing,
+  trustProxyValue,
 } = require('@erp/shared');
 const express = require('express');
 const pool = require('./db');
@@ -17,13 +24,16 @@ const logger = require('./logger');
 
 initTracing(process.env.SERVICE_NAME || 'svc-gateway');
 
+assertAuthConfig();
+
 const app = express();
 const PORT = process.env.PORT || 3004;
 
-app.set('trust proxy', 1);
+app.set('trust proxy', trustProxyValue());
 app.use(securityMiddleware());
 app.use(metricsMiddleware);
 app.use(express.json());
+app.use(auditLog({ pool, logger }));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -51,20 +61,21 @@ const healthRouter = require('./routes/health');
 app.use('/health', healthRouter);
 app.use('/api/v1/health', healthRouter);
 app.use('/api/health', healthRouter);
-app.get('/metrics', metricsHandler);
+app.get('/metrics', requireDiagnostics, metricsHandler);
 
 // BFF aggregation — GET /bff/ordenes/:id?include=producto (proxy aggregation)
 const ORDENES_URL = process.env.ORDENES_URL || 'http://ordenes:3002';
 const PRODUCTOS_URL = process.env.PRODUCTOS_URL || 'http://productos:3001';
 
 const breakerOrden = new CircuitBreaker(
-  async (id, requestId) => {
+  async (id, requestId, authorization) => {
     const url = `${ORDENES_URL.replace(/\/$/, '')}/ordenes/${id}`;
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), 2000);
     try {
       const h = { Accept: 'application/json' };
       if (requestId) h['X-Request-Id'] = requestId;
+      if (authorization) h.Authorization = authorization;
       const r = await fetch(url, { signal: c.signal, headers: h });
       if (r.status === 404) return null;
       if (!r.ok) throw new Error(`ordenes HTTP ${r.status}`);
@@ -78,13 +89,14 @@ const breakerOrden = new CircuitBreaker(
 );
 
 const breakerProd = new CircuitBreaker(
-  async (id, requestId) => {
+  async (id, requestId, authorization) => {
     const url = `${PRODUCTOS_URL.replace(/\/$/, '')}/productos/${id}`;
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), 2000);
     try {
       const h = { Accept: 'application/json' };
       if (requestId) h['X-Request-Id'] = requestId;
+      if (authorization) h.Authorization = authorization;
       const r = await fetch(url, { signal: c.signal, headers: h });
       if (r.status === 404) return null;
       if (!r.ok) throw new Error(`productos HTTP ${r.status}`);
@@ -97,14 +109,14 @@ const breakerProd = new CircuitBreaker(
   { failureThreshold: 5, timeout: 10000 }
 );
 
-app.get('/bff/ordenes/:id', async (req, res, next) => {
+app.get('/bff/ordenes/:id', authenticate, requireRole(...ROLE_READERS), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0)
       return res
         .status(400)
         .json({ error: { code: 'VALIDATION_ERROR', message: 'id must be positive integer' } });
-    const orden = await breakerOrden.fire(id, req.id);
+    const orden = await breakerOrden.fire(id, req.id, req.headers.authorization);
     if (!orden)
       return res
         .status(404)
@@ -116,7 +128,7 @@ app.get('/bff/ordenes/:id', async (req, res, next) => {
     let productoError = null;
     if (include === 'producto' || include === 'true') {
       try {
-        producto = await breakerProd.fire(orden.producto_id, req.id);
+        producto = await breakerProd.fire(orden.producto_id, req.id, req.headers.authorization);
       } catch (e) {
         productoError = e.message;
         logger.warn('bff_producto_fetch_failed', { orden_id: id, error: e.message });
@@ -134,8 +146,8 @@ app.get('/bff/ordenes/:id', async (req, res, next) => {
   }
 });
 
-// Also expose gateway health pool (reuse db)
-app.get('/bff/health', async (req, res) => {
+// Also expose gateway health pool (reuse db) — diagnostics only.
+app.get('/bff/health', requireDiagnostics, async (req, res) => {
   res.json({
     status: 'ok',
     service: 'svc-gateway',

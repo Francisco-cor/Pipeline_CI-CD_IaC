@@ -63,6 +63,12 @@ services:
       PORT: ${PORT_PRODUCTOS:-3001}
       SERVICE_NAME: svc-productos
       NODE_ENV: ${NODE_ENV:-development}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      JWT_SECRET: ${JWT_SECRET:-}
+      AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
+      ENABLE_DIAGNOSTICS: ${ENABLE_DIAGNOSTICS:-true}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
       APP_VERSION: ${APP_VERSION:-dev}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       CACHE_TTL: ${CACHE_TTL:-30}
@@ -94,6 +100,12 @@ services:
       PORT: ${PORT_ORDENES:-3002}
       SERVICE_NAME: svc-ordenes
       NODE_ENV: ${NODE_ENV:-development}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      JWT_SECRET: ${JWT_SECRET:-}
+      AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
+      ENABLE_DIAGNOSTICS: ${ENABLE_DIAGNOSTICS:-true}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
       APP_VERSION: ${APP_VERSION:-dev}
       PRODUCTOS_URL: ${PRODUCTOS_URL:-http://productos:3001}
       SQS_QUEUE_URL: ${SQS_QUEUE_URL:-}
@@ -125,6 +137,12 @@ services:
       PORT: ${PORT_STOCK:-3003}
       SERVICE_NAME: svc-stock
       NODE_ENV: ${NODE_ENV:-development}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      JWT_SECRET: ${JWT_SECRET:-}
+      AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
+      ENABLE_DIAGNOSTICS: ${ENABLE_DIAGNOSTICS:-true}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
       APP_VERSION: ${APP_VERSION:-dev}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       SQS_QUEUE_URL: ${SQS_QUEUE_URL:-}
@@ -183,6 +201,12 @@ services:
       PORT: ${PORT_GATEWAY:-3004}
       SERVICE_NAME: svc-gateway
       NODE_ENV: ${NODE_ENV:-development}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      JWT_SECRET: ${JWT_SECRET:-}
+      AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
+      ENABLE_DIAGNOSTICS: ${ENABLE_DIAGNOSTICS:-true}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      TRUST_PROXY: ${TRUST_PROXY:-1}
       APP_VERSION: ${APP_VERSION:-dev}
       ORDENES_URL: ${ORDENES_URL:-http://ordenes:3002}
       PRODUCTOS_URL: ${PRODUCTOS_URL:-http://productos:3001}

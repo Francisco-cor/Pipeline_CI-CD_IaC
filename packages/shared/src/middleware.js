@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const { v4: uuidv4 } = require('uuid');
 
+const { corsPolicy } = require('./config');
 const { storage } = require('./logger');
 
 function requestIdMiddleware(req, _res, next) {
@@ -49,16 +50,33 @@ function createRateLimiter() {
   });
 }
 
+function createCorsOptions(env = process.env) {
+  const policy = corsPolicy(env);
+  if (policy.mode === 'deny') {
+    // No Access-Control-Allow-Origin is emitted: browsers block cross-origin
+    // reads. Requests without an Origin (server-to-server, curl) still work.
+    return { origin: false, credentials: false };
+  }
+  if (policy.mode === 'wildcard') {
+    return { origin: '*', credentials: false };
+  }
+  return {
+    origin(origin, callback) {
+      // Same-origin / non-browser requests do not send Origin.
+      if (!origin) return callback(null, true);
+      return callback(null, policy.allowedOrigins.includes(origin));
+    },
+    credentials: false,
+  };
+}
+
 function securityMiddleware() {
   return [
     helmet({
       contentSecurityPolicy: false, // API-only, no CSP needed
       crossOriginEmbedderPolicy: false,
     }),
-    cors({
-      origin: process.env.CORS_ORIGIN || '*',
-      credentials: false,
-    }),
+    cors(createCorsOptions()),
     compression(),
     requestIdMiddleware,
     // expose requestId header
@@ -70,4 +88,4 @@ function securityMiddleware() {
   ];
 }
 
-module.exports = { securityMiddleware, requestIdMiddleware, createRateLimiter };
+module.exports = { securityMiddleware, requestIdMiddleware, createRateLimiter, createCorsOptions };

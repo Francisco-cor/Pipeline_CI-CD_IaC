@@ -32,6 +32,18 @@ resource "aws_ssm_parameter" "db_url" {
   }
 }
 
+resource "aws_ssm_parameter" "jwt_secret" {
+  name        = "/${var.project_name}/${var.environment}/jwt-secret"
+  description = "HS256 JWT signing secret for ${var.project_name} ${var.environment}. Injected into ECS containers as JWT_SECRET."
+  type        = "SecureString"
+  key_id      = var.ssm_kms_key_id
+  value       = var.jwt_secret
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-jwt-secret"
+  }
+}
+
 # -----------------------------------------------------------------------------
 # IAM Role: ECS Task Execution Role
 #
@@ -87,9 +99,20 @@ data "aws_iam_policy_document" "ecs_task_execution_secrets" {
 
     resources = [
       aws_ssm_parameter.db_url.arn,
+      aws_ssm_parameter.jwt_secret.arn,
       # Also allow the ARN without leading slash variant used by some SDKs
       "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/db-url",
     ]
+  }
+
+  dynamic "statement" {
+    for_each = var.redis_secret_arn != "" ? [1] : []
+    content {
+      sid       = "AllowGetRedisUrl"
+      effect    = "Allow"
+      actions   = ["ssm:GetParameter", "ssm:GetParameters"]
+      resources = [var.redis_secret_arn]
+    }
   }
 
   statement {

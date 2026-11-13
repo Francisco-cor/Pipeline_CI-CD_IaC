@@ -109,16 +109,22 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 - `logger.js:14` JSON `timestamp/level/service/message/requestId` via `AsyncLocalStorage` (`logger.js:14` + `middleware.js:12` `enterWith`) → CloudWatch `/ecs/*` `retention 7d dev / 90d prod` (`compute/main.tf:110`).
 - `observability.tf:34-250` metric filters `ServiceErrorCount` + `HttpLatency` (`$.ms`) + `Http5xxCount` (`$.status >=500`) → base alarms `>10/5m` `p95>500ms` `5xx>10/5m` `DBConnections>80` (`AWS/RDS`) plus conditional SQS backlog/age/DLQ alarms → SNS `alert_email`.
 - `dashboard.tf:10` 6 widgets CPU/Mem/Error/Latency p95/5xx/DB conns + log table `filter level=error` → `erp-pipeline-{env}-overview`.
-- `metrics.js:20` `prom-client` `http_request_duration_ms` histogram + `http_requests_total` + `http_active_requests` + EMF `HttpLatency` → `GET /metrics` (`services/*/src/index.js:14` + `nginx.conf:45`) + `X-Cache HIT/MISS` + `circuitBreaker` stats `GET /ordenes/_circuit`.
+- `metrics.js:20` `prom-client` `http_request_duration_ms` histogram + `http_requests_total` + `http_active_requests` + EMF `HttpLatency` → `GET /metrics` + `X-Cache HIT/MISS` + `circuitBreaker` stats `GET /ordenes/_circuit`. Estos endpoints son diagnósticos: `ENABLE_DIAGNOSTICS=false` (default prod) y NGINX devuelven 404.
 - `tracing.js:20` OTel `NodeSDK` `auto-instrumentations` `OTLPTraceExporter` `OTEL_ENABLED` + `TRACE_SAMPLE_RATIO 0.1` → X-Ray/Jaeger `http://localhost:4318/v1/traces` (`services/*/src/index.js:3` `initTracing`).
-- `health.js:60` `/health/details` `pool {totalCount,idleCount,waitingCount}` + `uptime` + `memory` + `version` + `requestId` + ALB TG health `/health`.
+- `health.js:60` `/health/details` `pool {totalCount,idleCount,waitingCount}` + `uptime` + `memory` + `version` + `requestId` + ALB TG health `/health`; `/health/details` está gateado por `ENABLE_DIAGNOSTICS`.
 
-## Seguridad (Fase 8)
+## Seguridad (Fase 8 + Fase 2)
 
+- **AuthN/AuthZ:** `packages/shared/src/auth.js` JWT Bearer HS256 (`JWT_SECRET`) o RS256 (`JWT_PUBLIC_KEY`); `authenticate` adjunta `{sub, role, tenantId, scopes}` y `requireRole`/`requireScope` aplican RBAC. `reader` lee, `operator` escribe POST/PUT, `admin` además borra. `AUTH_ENABLED` default true en prod/false en dev-test; prod sin clave falla cerrado al arrancar (`assertAuthConfig`).
+- **Audit:** `audit.js` + `011_audit_log.sql` registran cada mutación (POST/PUT/PATCH/DELETE) con actor/rol/tenant/acción/recurso/status/requestId. Best-effort: un fallo de audit no cambia la respuesta.
+- **Diagnósticos:** `ENABLE_DIAGNOSTICS` (default false prod) gatea `/metrics`, `/health/details`, `/_circuit`, `/bff/health` con 404; NGINX de prod también los bloquea.
+- **CORS:** `CORS_ORIGIN` allowlist; sin allowlist en prod no se emite `Access-Control-Allow-Origin` (fail closed); dev/test conservan `*`.
+- **Rate limit / proxy:** NGINX `real_ip` confía solo en rangos privados y reescribe `X-Forwarded-For` en el hop BFF; `TRUST_PROXY` configurable (default 1 hop).
 - OIDC GitHub→AWS (`bootstrap/cicd.tf:16-65`, `ADR-002`) — `prod` solo `main` (`bootstrap/cicd.tf:56` Fase 8.5), thumbprint `data.tls_certificate` auto + rotation doc `docs/security/rotation.md:1`.
-- SSM `SecureString` (`secrets/main.tf:23`) + `GetParameter/GetParameters` + customer-managed KMS when enabled (`kms.tf:1`) + `kms:Decrypt ViaService ssm` scoped to the key ARN + rotation manual (`docs/security/rotation.md:40`).
-- `nginx.conf:14-40` `limit_req_zone 30r/s burst 60 429` + `server_tokens off` + headers `X-Content-Type-Options/HSTS/CSP/Permissions-Policy` (`nginx.conf:36` Fase 8.4) + `client_max_body_size 1m` + `proxy_hide_header`.
-- `packages/shared/src/db.js:18` + `migrations/run.js:15` RDS TLS `rejectUnauthorized:true` en prod con CA `certs/rds-ca-bundle.pem` `/app/certs` (`Dockerfile:25` Fase 8.2) + `trust proxy 1` + `express-rate-limit 100/min` (`middleware.js:20` + `index.js:14` Fase 8.3).
+- SSM `SecureString` (`secrets/main.tf:23`) + `GetParameter/GetParameters` + customer-managed KMS when enabled (`kms.tf:1`) + `kms:Decrypt ViaService ssm` scoped to the key ARN + rotation manual (`docs/security/rotation.md:40`). Redis usa un segundo SecureString `/erp/<env>/redis-url`.
+- `nginx.conf` `limit_req_zone 30r/s burst 60 429` + `server_tokens off` + headers `X-Content-Type-Options/HSTS/CSP/Permissions-Policy` + `client_max_body_size 1m` + `proxy_hide_header`.
+- `packages/shared/src/db.js:18` + `migrations/run.js:15` RDS TLS `rejectUnauthorized:true` en prod con CA `certs/rds-ca-bundle.pem` `/app/certs` (`Dockerfile:25` Fase 8.2) + `rds.force_ssl=1` + `express-rate-limit 100/min`.
+- Redis (ElastiCache) con `transit_encryption_enabled`, `at_rest_encryption_enabled` y `auth_token`; SQS con SSE administrado + política que deniega `aws:SecureTransport=false`.
 - SGs (`networking/main.tf:114-181`) RDS solo `sg_app→5432`; public ingress to `sg_app` exists only in the explicit FinOps mode, while production reaches private tasks through ALB/ACM (Fase 8.8).
 - Production ALB traffic is protected by WAFv2 managed rules and a per-IP rate limit (`modules/waf/main.tf:1`); HTTP redirects to HTTPS when ACM is configured.
 - Supply chain: `gitleaks` + `trivy fs/image` + `npm audit --omit=dev high` + `checkov/tflint` 0 high.

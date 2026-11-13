@@ -6,6 +6,7 @@ resource "aws_sqs_queue" "ordenes_dlq" {
   name  = "${var.project_name}-${var.environment}-ordenes-dlq"
 
   message_retention_seconds = 1209600 # 14 days
+  sqs_managed_sse_enabled   = true
 
   tags = {
     Name = "${var.project_name}-${var.environment}-ordenes-dlq"
@@ -21,6 +22,7 @@ resource "aws_sqs_queue" "ordenes" {
   visibility_timeout_seconds = 60
   receive_wait_time_seconds  = 20
   message_retention_seconds  = 345600 # 4 days
+  sqs_managed_sse_enabled    = true
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.ordenes_dlq[0].arn
@@ -30,6 +32,51 @@ resource "aws_sqs_queue" "ordenes" {
   tags = {
     Name = "${var.project_name}-${var.environment}-ordenes"
   }
+}
+
+# Same-account callers use the task identity policy (modules/secrets), not a
+# Principal="*" grant. This queue policy only denies non-TLS access, which is a
+# bound on the transport surface rather than a widening of who can use it.
+resource "aws_sqs_queue_policy" "ordenes" {
+  count     = var.enable_sqs ? 1 : 0
+  queue_url = aws_sqs_queue.ordenes[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyUnencryptedTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "sqs:*"
+        Resource  = aws_sqs_queue.ordenes[0].arn
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_sqs_queue_policy" "ordenes_dlq" {
+  count     = var.enable_sqs ? 1 : 0
+  queue_url = aws_sqs_queue.ordenes_dlq[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyUnencryptedTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "sqs:*"
+        Resource  = aws_sqs_queue.ordenes_dlq[0].arn
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
+      }
+    ]
+  })
 }
 
 # SQS access is granted to the ECS task role in modules/secrets. An identity

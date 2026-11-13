@@ -194,15 +194,18 @@ resource "aws_ecs_task_definition" "app" {
   task_role_arn      = var.task_role_arn
 
   container_definitions = templatefile("${path.module}/templates/taskdef.json.tftpl", {
-    ecr_base      = local.ecr_base
-    project_name  = var.project_name
-    environment   = var.environment
-    db_secret_arn = var.db_secret_arn
-    log_group     = aws_cloudwatch_log_group.ecs.name
-    region        = data.aws_region.current.name
+    ecr_base       = local.ecr_base
+    project_name   = var.project_name
+    environment    = var.environment
+    db_secret_arn  = var.db_secret_arn
+    jwt_secret_arn = var.jwt_secret_arn
+    auth_enabled   = var.environment == "dev" ? "false" : "true"
+    log_group      = aws_cloudwatch_log_group.ecs.name
+    region         = data.aws_region.current.name
     # Fase 10 envs
-    redis_url     = var.redis_url
-    sqs_queue_url = var.sqs_queue_url
+    redis_url        = var.redis_url
+    redis_secret_arn = var.redis_secret_arn
+    sqs_queue_url    = var.sqs_queue_url
     # All six containers share the task network namespace (awsvpc + sidecars),
     # and the tasks are not registered in Cloud Map. Loopback is therefore the
     # only URL that resolves at runtime; do not advertise *.erp.local here.

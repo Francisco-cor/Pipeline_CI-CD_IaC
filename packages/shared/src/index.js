@@ -3,9 +3,13 @@
 // SPDX-License-Identifier: MIT
 // Barrel export — facilita `require('@erp/shared')`
 
+const audit = require('./audit');
+const auth = require('./auth');
 const cache = require('./cache');
 const circuitBreaker = require('./circuitBreaker');
+const config = require('./config');
 const pool = require('./db');
+const diagnostics = require('./diagnostics');
 const errors = require('./errors');
 const health = require('./health');
 const idempotency = require('./idempotency');
@@ -77,6 +81,30 @@ module.exports = {
   // middleware
   securityMiddleware: middleware.securityMiddleware,
   requestIdMiddleware: middleware.requestIdMiddleware,
+  createCorsOptions: middleware.createCorsOptions,
+
+  // auth / RBAC (Fase 2 seguridad)
+  authenticate: auth.authenticate,
+  requireRole: auth.requireRole,
+  requireScope: auth.requireScope,
+  assertAuthConfig: auth.assertAuthConfig,
+  verifyToken: auth.verifyToken,
+  ROLE_READERS: auth.ROLE_READERS,
+  ROLE_WRITERS: auth.ROLE_WRITERS,
+  ROLE_ADMINS: auth.ROLE_ADMINS,
+
+  // audit (Fase 2 seguridad)
+  auditLog: audit.auditLog,
+
+  // diagnostics gate (Fase 2 seguridad)
+  requireDiagnostics: diagnostics.requireDiagnostics,
+
+  // environment policy
+  isProduction: config.isProduction,
+  authEnabled: config.authEnabled,
+  diagnosticsEnabled: config.diagnosticsEnabled,
+  corsPolicy: config.corsPolicy,
+  trustProxyValue: config.trustProxyValue,
 
   // cache (Fase 10.5)
   cache,

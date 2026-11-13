@@ -2,10 +2,12 @@
 
 const {
   AppError,
+  ROLE_WRITERS,
   cache,
   enqueueStockActualizado,
   idempotency,
   parsePagination,
+  requireRole,
   setPaginationHeaders,
   sortToOrderBy,
   stockSchema,
@@ -43,6 +45,7 @@ router.get('/', async (req, res, next) => {
 // Idempotency-Key evita duplicar movimientos manuales en reintentos del cliente.
 router.post(
   '/',
+  requireRole(...ROLE_WRITERS),
   validate(stockSchema),
   idempotency({ scope: 'stock:create', pool }),
   async (req, res, next) => {

@@ -38,8 +38,20 @@ variable "rds_password" {
   sensitive   = true
 }
 
+variable "jwt_secret" {
+  description = "HS256 signing secret for platform-issued JWTs. Stored as an SSM SecureString and injected into ECS tasks as JWT_SECRET."
+  type        = string
+  sensitive   = true
+}
+
 variable "sqs_queue_arn" {
   description = "Optional SQS queue ARN used by the application task role. Empty when SQS is disabled."
+  type        = string
+  default     = ""
+}
+
+variable "redis_secret_arn" {
+  description = "Optional SSM parameter ARN storing the rediss:// URL (AUTH token included). Empty when Redis is disabled; when set, the execution role can read it for ECS secret injection."
   type        = string
   default     = ""
 }

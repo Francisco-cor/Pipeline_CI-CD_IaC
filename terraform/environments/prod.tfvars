@@ -12,7 +12,10 @@ db_username = "erpadmin"
 app_port    = 3000
 
 github_repo = "Francisco-cor/Pipeline_CI-CD_IaC"
-alert_email = "ops@example.com"
+# REQUIRED before a prod apply: set the on-call mailbox. The configuration
+# guard rejects empty values and example.com/org/net. SNS sends a subscription
+# confirmation email that must be clicked before alarm notifications arrive.
+alert_email = ""
 
 # Prod: seguridad y alta disponibilidad (ver ADR-001)
 enable_nat_gateway         = true # production boundary: ECS/RDS private + NAT per AZ
