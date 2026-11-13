@@ -17,3 +17,8 @@ output "db_secret_arn" {
   value       = aws_ssm_parameter.db_url.arn
 }
 
+output "jwt_secret_arn" {
+  description = "ARN of the SSM Parameter that holds the HS256 JWT signing secret."
+  value       = aws_ssm_parameter.jwt_secret.arn
+}
+

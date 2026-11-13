@@ -68,5 +68,5 @@ output "sqs_queue_url" {
 
 output "redis_endpoint" {
   description = "Fase 10.5 — Redis endpoint when enable_redis=true"
-  value       = try(aws_elasticache_cluster.redis[0].cache_nodes[0].address, "")
+  value       = try(aws_elasticache_replication_group.redis[0].primary_endpoint_address, "")
 }
