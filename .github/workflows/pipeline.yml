@@ -52,6 +52,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual re-run of the full pipeline (e.g. after an AWS/OIDC fix). Pushes to
+  # main are the normal trigger; this only exists for operators.
+  workflow_dispatch:
 
 # 6.1 concurrency — cancela runs previos del mismo branch/workflow.
 # Only supersede PR runs: cancelling a main run could kill an in-flight
