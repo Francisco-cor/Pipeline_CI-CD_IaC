@@ -455,7 +455,24 @@ jobs:
           output: trivy-fs.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: '1'
+          # Generate the SARIF; the explicit jq gate below decides pass/fail.
+          # The action's exit-code has historically disagreed with --severity
+          # (it failed on MEDIUM findings), which made the gate non-deterministic.
+          exit-code: '0'
+
+      - name: Enforce Trivy FS gate
+        run: |
+          set -euo pipefail
+          if [ ! -s trivy-fs.sarif ]; then
+            echo "ERROR: Trivy did not produce trivy-fs.sarif" >&2
+            exit 1
+          fi
+          findings=$(jq '[.runs[].results[]? | select(.level == "error")] | length' trivy-fs.sarif)
+          echo "HIGH/CRITICAL findings: ${findings}"
+          if [ "${findings}" -ne 0 ]; then
+            jq -r '.runs[].results[]? | select(.level == "error") | "\(.ruleId): \(.message.text)"' trivy-fs.sarif >&2
+            exit 1
+          fi
 
       - name: Upload Trivy FS SARIF
         uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
@@ -923,7 +940,21 @@ jobs:
           output: trivy-image-${{ matrix.service }}.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: '1'
+          # See the FS gate: keep the action permissive and enforce on SARIF.
+          exit-code: '0'
+
+      - name: Enforce Trivy image gate
+        # Skipped images never produce a SARIF; a scan that ran must have one.
+        if: always() && hashFiles(format('trivy-image-{0}.sarif', matrix.service)) != ''
+        run: |
+          set -euo pipefail
+          sarif="trivy-image-${{ matrix.service }}.sarif"
+          findings=$(jq '[.runs[].results[]? | select(.level == "error")] | length' "${sarif}")
+          echo "HIGH/CRITICAL findings in ${sarif}: ${findings}"
+          if [ "${findings}" -ne 0 ]; then
+            jq -r '.runs[].results[]? | select(.level == "error") | "\(.ruleId): \(.message.text)"' "${sarif}" >&2
+            exit 1
+          fi
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@0fa1882f994fbd81a47ab0804f93354f5ea40147 # v3.28.17
