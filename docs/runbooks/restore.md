@@ -232,6 +232,8 @@ La promoción **no** es automática. Requiere ventana, aprobación y un plan de 
 
 1. Extraer solo lo necesario del scratch:
    ```bash
+   # Construir la URL del scratch con el endpoint restaurado y las mismas credenciales.
+   export SCRATCH_URL="postgresql://<user>:<pass>@<scratch-endpoint>:5432/erpdb"
    pg_dump "$SCRATCH_URL" -t productos --data-only --column-inserts > /tmp/productos.sql
    ```
 2. Revisar el archivo, contar filas y aplicarlo en la original dentro de una transacción:

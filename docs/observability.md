@@ -240,6 +240,7 @@ terraform -chdir=terraform output -json alarm_names | jq -r '.[]'
 
 - `terraform/budgets.tf` crea un `aws_budgets_budget` mensual (`COST`, `MONTHLY`) por entorno con `limit_amount = var.monthly_budget_usd`.
 - Notificaciones **ACTUAL al 50/80/100%** al mismo topic SNS (`alerts`). AWS Budgets acepta SNS directamente, así que no hace falta el fallback por email.
+- **Cost Explorer debe estar habilitado** en la cuenta (Billing → Cost Explorer) para que Budgets reciba datos de gasto; sin él, el budget existe pero no evalúa umbrales.
 - El budget se filtra por `TagKeyValue = user:Environment$<env>` para que dev/staging/prod no midan el gasto total de la cuenta. **Requiere activar el cost allocation tag `Environment` una vez** en Billing → Cost allocation tags (o `aws ce update-cost-allocation-tags-status --cost-allocation-tags-status TagKey=Environment,Status=Active`). Sin activarlo, el budget muestra $0 y no alerta.
 - `Owner` y `CostCenter` se aplican a todos los recursos vía `default_tags` (`terraform/main.tf`) para chargeback y para que el runbook sepa a quién escalar.
 - Presupuestos iniciales: **dev $50**, **staging $150**, **prod $300** (`terraform/environments/*.tfvars`). Ajustar tras el primer mes con datos reales de Cost Explorer.
