@@ -1,0 +1,78 @@
+name: Bug report
+description: Reportar un comportamiento incorrecto en local, CI o un entorno desplegado.
+title: '[bug] '
+labels: ['bug', 'triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por reportar. **No incluyas secretos, tokens ni datos de clientes.**
+        Para vulnerabilidades usá el canal privado de [SECURITY.md](../security/policy)
+        (GitHub Security Advisories), nunca un issue público.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Resumen
+      description: Qué esperabas y qué pasó. Una o dos frases.
+      placeholder: Al pedir GET /api/v1/productos?limit=1 el header X-Total-Count viene vacío.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Entorno
+      options:
+        - Local (docker compose)
+        - CI (GitHub Actions)
+        - dev
+        - staging
+        - prod
+        - Otro
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Pasos para reproducir
+      description: Comandos exactos y datos mínimos.
+      placeholder: |
+        1. cp .env.example .env && make setup
+        2. curl -i http://localhost:80/api/v1/productos?limit=1
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamiento esperado
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportamiento actual
+      description: Incluí logs, requestId y status HTTP. Redactá secretos.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Versión / commit
+      description: Tag, imagen `sha-<short>` o salida de `git rev-parse --short HEAD`.
+      placeholder: v1.12.0 / sha-abc1234
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Contexto adicional
+      description: Screenshots, dashboards, links a runs de CI.
+    validations:
+      required: false
