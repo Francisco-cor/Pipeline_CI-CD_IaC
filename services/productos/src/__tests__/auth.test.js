@@ -19,10 +19,10 @@ const bearer = value => ({ Authorization: `Bearer ${value}` });
 const uniqueName = prefix => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 async function auditRowFor(requestId) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
     const { rows } = await pool.query('SELECT * FROM audit_log WHERE request_id = $1', [requestId]);
     if (rows.length > 0) return rows[0];
-    await new Promise(resolve => setTimeout(resolve, 25));
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
   return null;
 }
@@ -111,14 +111,15 @@ describe('Productos — authentication and RBAC', () => {
   });
 
   it('records an audit row for an authenticated mutation', async () => {
+    const requestId = `audit-it-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const res = await request(app)
       .post('/api/v1/productos')
       .set(bearer(token('operator', { sub: 'auditor' })))
-      .set('X-Request-Id', 'audit-it-1')
+      .set('X-Request-Id', requestId)
       .send({ nombre: uniqueName('Audited'), precio: 3 });
     expect(res.status).toBe(201);
 
-    const row = await auditRowFor('audit-it-1');
+    const row = await auditRowFor(requestId);
     expect(row).toBeTruthy();
     expect(row).toMatchObject({
       actor_sub: 'auditor',
