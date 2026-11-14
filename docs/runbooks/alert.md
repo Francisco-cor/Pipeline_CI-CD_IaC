@@ -1,100 +1,182 @@
-# Runbook — Alert Triage (Fase 9.8)
+# Runbook — Alert triage e incident response
 
-> Qué hacer cuando una alarma de `observability.tf:49` dispara (<5m). Ver `docs/observability.md:1` y `terraform/dashboard.tf:1`.
+> Qué hacer cuando una alarma de `terraform/observability.tf` dispara. Para el catálogo de SLIs/SLOs y el error budget ver `docs/observability.md#slis-slos-y-error-budget`.
 
-## Alarmas
+## 1. Severidades
 
-| Alarma                      | Métrica                                                 | Umbral   | Causa común                                                                                               |
-| --------------------------- | ------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
-| `*-high-error-rate`         | `ServiceErrorCount Sum 5m`                              | `>10`    | bug 500, DB down, migración fallida                                                                       |
-| `*-high-latency-p95`        | `HttpLatency p95 5m`                                    | `>500ms` | slow query (`log_min_duration 1000` en `database/main.tf:60`), pool exhaustion, falta de índice `pg_trgm` |
-| `*-high-5xx-rate`           | `Http5xxCount Sum 5m`                                   | `>10`    | 5xx por validación no capturada o `pool` timeout                                                          |
-| `*-db-connections-high`     | `AWS/RDS DatabaseConnections Maximum 5m`                | `>80`    | pool leak (`DB_POOL_MAX=3` × N tasks, t3.micro max 112), `idleTimeout` mal, falta `pool.end()`            |
-| `*-sqs-backlog-high`        | `AWS/SQS ApproximateNumberOfMessagesVisible Maximum 5m` | `>10`    | relay outbox detenido, consumidor lento o bloqueo de DB                                                   |
-| `*-sqs-oldest-message-high` | `AWS/SQS ApproximateAgeOfOldestMessage Maximum 5m`      | `>300s`  | latencia sostenida del relay/consumer                                                                     |
-| `*-sqs-dlq-not-empty`       | `AWS/SQS ApproximateNumberOfMessagesVisible Maximum 1m` | `>=1`    | mensaje rechazado cinco veces; revisar antes de replay                                                    |
+| Severidad  | Definición                                                                   | Ejemplos de alarma                                                                                   | Respuesta                                          | Canal                            |
+| ---------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------- | -------------------------------- |
+| **SEV1**   | Servicio caído o sin capacidad de atender tráfico. Usuarios afectados ahora. | `ecs-running-tasks-low`, `alb-unhealthy-hosts`, `sqs-dlq-not-empty` con impacto en órdenes           | Ack ≤ 5 min, mitigar ≤ 30 min, updates cada 30 min | Page (SNS → `alert_webhook_url`) |
+| **SEV2**   | Degradación parcial o riesgo alto de agotar el error budget.                 | `alb-5xx-ratio`, `alb-latency-p95`, `high-error-rate`, `db-connections-high`, `rds-free-storage-low` | Ack ≤ 15 min, mitigar ≤ 2h                         | Page (SNS → webhook)             |
+| **SEV3**   | Tendencia o capacidad que no afecta a usuarios todavía.                      | `rds-cpu-high`, `high-latency-p95`, `high-5xx-rate`, `waf-blocked-requests-high`, `sqs-backlog-high` | Ack ≤ 1 día hábil, resolver ≤ 1 semana             | Ticket (email/SNS)               |
+| **Info**   | Cierre de alarma (`ok_actions`). No abre incidente.                          | Cualquier `*-ok`                                                                                     | Registrar y cerrar                                 | Email                            |
+| **FinOps** | Gasto por encima de lo presupuestado.                                        | Budget 50/80/100%                                                                                    | Revisar en el siguiente ciclo                      | Ticket                           |
 
-## Flujo de triage (SLO <5m)
+Reglas rápidas:
 
-### 1. Dashboard (30s)
+- Si hay **5xx sistémico** o **cero targets sanos**, es SEV1 aunque la alarma diga SEV2.
+- Si el impacto es **solo interno** (staging/dev), bajar una severidad.
+- Si hay **pérdida de datos** o sospecha de corrupción, SEV1 y no ejecutar ningún restore sin leer `docs/runbooks/restore.md`.
 
-Abre `https://console.aws.amazon.com/cloudwatch/home?region=us-east-2#dashboards:name=erp-pipeline-{env}-overview`
+## 2. On-call y escalado
 
-- ¿Cuál widget está en rojo? (annot `threshold 10` / `500ms`)
-- ¿Solo un servicio o todos? (si todos → DB o NGINX; si uno → bug en ese servicio)
-- ¿Correlación CPU/Mem vs Latency? (si CPU 90% → escala `desired_count`)
+La rotación y los contactos reales viven en el servicio de guardia (PagerDuty/Opsgenie) y en `alert_email`. Este repo **no** guarda teléfonos ni emails personales.
 
-### 2. Logs Insights (1m)
+1. **Primario**: confirma la página en el tiempo de la severidad. Si no confirma, el servicio escala al secundario automáticamente.
+2. **Secundario**: asume a los 15 min sin ack del primario (SEV1/SEV2).
+3. **Escalado técnico**: si a los 30 min (SEV1) o 2h (SEV2) no hay mitigación, involucrar al owner del área (`Owner` tag en los recursos) y al tech lead.
+4. **Incident Commander**: en SEV1, una persona coordina, otra investiga y otra comunica. No se hace rollback y diagnóstico por la misma persona.
+5. **Comunicación**: estado público cada 30 min en SEV1, cada 2h en SEV2. Usar el canal de incidentes acordado, no el hilo de la alarma.
 
-Ve a **Logs → Insights → Log group `/ecs/erp-pipeline-{env}`**
+Runbooks relacionados:
 
-```sql
-# Top errores (dashboard widget 5)
-fields @timestamp, level, service, message, requestId | filter level="error" | stats count() as c by service, message | sort c desc | limit 5
+- Deploy y rollback: `docs/runbooks/deploy.md`, `docs/runbooks/rollback.md`
+- Drift: `docs/runbooks/drift.md`
+- Restore/DR: `docs/runbooks/restore.md`
+- Rotación de secretos: `docs/security/rotation.md`
 
-# Si es high-latency: top lentas con requestId
-fields @timestamp, service, ms, status, requestId, path | filter message="http_request" and ms > 500 | sort ms desc | limit 20
+## 3. Primeros 5 minutos (cualquier alarma)
 
-# Si es high-5xx: filtra por status
-fields @timestamp, service, status, path, requestId, error | filter status >= 500 | sort @timestamp desc | limit 20
+1. **Dashboard** (`erp-pipeline-{env}-overview`): ¿qué widget está en rojo? ¿un servicio o todos?
+2. **Logs Insights** (`/ecs/erp-pipeline-{env}`):
 
-# Filtra por requestId para traza completa (logs + metrics + traces)
-fields @timestamp, level, service, message, requestId | filter requestId="xxx-yyy-zzz" | sort @timestamp desc
-```
+   ```sql
+   fields @timestamp, level, service, message, requestId, ms, status
+   | filter level="error" or status >= 500
+   | sort @timestamp desc
+   | limit 50
+   ```
 
-Copia un `requestId` de la fila más afectada → úsalo en paso 3.
+3. **Estado de la alarma y transiciones**:
 
-### 3. Health details + metrics (1m)
+   ```bash
+   aws cloudwatch describe-alarm-history \
+     --alarm-name erp-pipeline-{env}-<alarm-suffix> \
+     --history-item-type StateUpdate --max-records 10
+   ```
+
+4. **Salud de la app** (desde dentro de la VPC o vía ALB):
+
+   ```bash
+   curl -s https://<alb-dns>/health/details | jq
+   curl -s https://<alb-dns>/metrics | grep -E "http_request_duration|http_active_requests"
+   ```
+
+5. **Decisión**: mitigar (rollback, escalar, failover) o escalar. No dejar una alarma SEV1 sin dueño.
+
+## 4. ECS
+
+**Alarma:** `ecs-running-tasks-low` (`RunningTaskCount < DesiredCount`, 2 datapoints de 60s).
+
+1. Ver eventos y tareas paradas:
+
+   ```bash
+   aws ecs describe-services --cluster erp-pipeline-{env}-cluster \
+     --services erp-pipeline-{env}-service \
+     --query 'services[0].{desired:desiredCount,running:runningCount,pending:pendingCount,events:events[0:10]}'
+
+   aws ecs list-tasks --cluster erp-pipeline-{env}-cluster --desired-status STOPPED \
+     --query 'taskArns[0:5]' --output text | xargs -r -n1 \
+     aws ecs describe-tasks --cluster erp-pipeline-{env}-cluster --tasks
+   ```
+
+2. Causas frecuentes y acción:
+   - `CannotPullContainerError` → imagen/tag inexistente en ECR o falta `ecr:GetAuthorizationToken`. Verificar `deploy.sh` y el digest.
+   - `ResourceInitializationError: unable to pull secrets` → SSM/KMS/rol de ejecución. Revisar `secrets` module y rotación.
+   - `STOPPED` con exit code 1/137 → crash al arrancar u OOM. Ver logs del task y memoria.
+   - `pendingCount > 0` sin running → subnets/SG/capacidad Fargate o `assign_public_ip` incorrecto.
+3. Si el servicio está en rollback automático (circuit breaker), confirmar revisión anterior y no forzar un deploy nuevo hasta estabilizar.
+4. Escalar horizontalmente no arregla un crash loop: si el task muere antes de `/health`, el problema es imagen/config, no carga.
+
+## 5. ALB
+
+**Alarmas:** `alb-unhealthy-hosts`, `alb-5xx-ratio`, `alb-latency-p95`.
+
+1. **Unhealthy hosts**:
+
+   ```bash
+   TG_ARN=$(aws elbv2 describe-target-groups \
+     --names erp-pipeline-{env}-tg \
+     --query 'TargetGroups[0].TargetGroupArn' --output text)
+   aws elbv2 describe-target-health --target-group-arn "$TG_ARN"
+   ```
+
+   Si `HealthCheck` falla con 502/504, revisar NGINX y el puerto 80 del task (SG `app_from_alb`).
+
+2. **5xx ratio**: el metric math usa `HTTPCode_Target_5XX_Count / RequestCount`. Si el ratio sube pero el tráfico es bajo, confirmar que no sean dos requests de un scanner. Si es sistémico:
+   - Revisar logs por `status >= 500` y `requestId`.
+   - Si el 5xx empezó tras un deploy, rollback (`docs/runbooks/rollback.md`).
+   - Si el 5xx viene del target pero la app responde 200 internamente, revisar timeouts del target group y `keepalive` de NGINX.
+
+3. **Latencia p95 > 500ms**: comparar `TargetResponseTime` con `HttpLatency` (EMF). Si ALB es alto y app bajo, el cuello está en la red/NGINX; si ambos suben, revisar RDS (`pg_stat_statements`, `log_min_duration_statement=1000`), pool y CPU.
+4. **WAF**: si el 5xx coincide con un pico de `BlockedRequests`, revisar `docs/runbooks/alert.md#8-waf` antes de tocar reglas.
+
+## 6. RDS
+
+**Alarmas:** `rds-free-storage-low`, `rds-cpu-high`, `db-connections-high`.
+
+1. **Storage < 10 GiB**:
+   - Identificar la tabla/índice que crece: `SELECT relname, pg_size_pretty(pg_total_relation_size(relid)) FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;`
+   - Revisar `pg_stat_activity` para transacciones largas que impiden vacuum.
+   - Mitigar: `VACUUM (VERBOSE, ANALYZE) <tabla>`, purgar/retencionar datos, o aumentar `allocated_storage` (mutación de infraestructura, coordinar ventana). No borrar la instancia.
+2. **CPU > 80%**:
+   - Top queries por `pg_stat_statements` (extensión habilitada en el parameter group).
+   - Si es un pico de migración/backfill, es esperado; si es sostenido, revisar índices y `N+1`.
+   - Si el CPU viene de conexiones ociosas, revisar `DB_POOL_MAX` y `idleTimeout` en los servicios.
+3. **DBConnections > 80**:
+   - `SELECT state, count(*) FROM pg_stat_activity GROUP BY state;`
+   - `pool.waitingCount > 0` en `/health/details` confirma agotamiento.
+   - Revisar leaks (`pool.end()` en SIGTERM), bajar `DB_POOL_MAX` o escalar tasks. No aumentar `max_connections` sin memoria disponible.
+4. **Failover / instancia caída**: si RDS no publica métricas y la app no conecta, tratar como SEV1. No ejecutar restore sobre la instancia original; seguir `docs/runbooks/restore.md` para crear una instancia scratch.
+
+## 7. SQS
+
+**Alarmas:** `sqs-backlog-high`, `sqs-oldest-message-high`, `sqs-dlq-not-empty` (solo con `enable_sqs=true`).
+
+1. **Backlog / oldest message**: revisar el relay del outbox y el consumidor de stock. No borrar mensajes para "limpiar" la alarma.
+   ```bash
+   aws sqs get-queue-attributes --queue-url "$(terraform -chdir=terraform output -raw sqs_queue_url)" \
+     --attribute-names ApproximateNumberOfMessages ApproximateAgeOfOldestMessage
+   ```
+2. **DLQ con mensajes**: inspeccionar el payload antes de replay. Corregir el consumidor, validar el evento y recién entonces mover mensajes con `aws sqs start-message-move-task` (requiere `--destination-arn` de la cola origen). Si el mensaje es inválido de forma permanente, documentar y descartar con aprobación.
+3. Si el backlog empezó tras un deploy, rollback del consumidor y dejar que el outbox drene.
+
+## 8. WAF
+
+**Alarma:** `waf-blocked-requests-high` (`BlockedRequests > 1000 / 5m`, `Rule=ALL`).
+
+1. Revisar sampled requests en la consola de WAF (Web ACL → Sampled requests) y el `terminatingRuleId`.
+2. Si es un ataque automatizado: confirmar que el ALB sigue sano y que el rate limit está haciendo su trabajo. No desactivar la Web ACL.
+3. Si es un **falso positivo** (clientes legítimos bloqueados): identificar la regla, crear una exclusión acotada (scope-down statement) y desplegarla con revisión. Nunca poner la regla en `count` de forma permanente sin ticket de seguimiento.
+4. Si el bloqueo es masivo y afecta disponibilidad, tratar como SEV2 y coordinar con seguridad.
+
+## 9. Budgets (FinOps)
+
+**Notificación:** 50% (aviso), 80% (ticket), 100% (ticket prioritario).
+
+1. Revisar Cost Explorer agrupado por `Environment` y servicio.
+2. Confirmar que el tag `Environment` está activo como cost allocation tag; si no, el budget no refleja el gasto real.
+3. Causas típicas: NAT Gateway encendido en dev, RDS multi-AZ, logs de retención larga, tareas ECS escaladas, snapshots huérfanos.
+4. No apagar recursos de prod sin aprobación; para dev/staging aplicar el modo FinOps documentado en `docs/adr/ADR-001-public-subnets-no-nat-gateway.md`.
+
+## 10. Cierre
+
+- Registrar en el ticket/incidente: hora de detección, hora de mitigación, causa raíz, acción tomada, enlaces a logs/dashboard.
+- Si hubo rollback, abrir PR con un test que reproduzca el fallo antes de redeploy.
+- Si fue una alarma ruidosa, ajustar el umbral en `terraform/observability.tf` **y** actualizar este runbook; no silenciar sin cambiar el SLO.
+- Si fue un incidente SEV1/SEV2, hacer postmortem sin culpa en ≤ 5 días hábiles y agregar una acción con dueño y fecha.
+- Para medir RTO/RPO, ejecutar `bash scripts/restore-drill.sh` y anotar la evidencia en `docs/runbooks/restore.md#8-evidencia`.
+
+## 11. Silenciar y umbrales
 
 ```bash
-# Desde bastión o via NGINX public IP
-IP=$(aws ec2 describe-network-interfaces --network-interface-ids $(aws ecs describe-tasks --cluster erp-pipeline-{env}-cluster --tasks $(aws ecs list-tasks --cluster erp-pipeline-{env}-cluster --query 'taskArns[0]' --output text) --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text) --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
+# Ver alarmas y estado actual
+aws cloudwatch describe-alarms --alarm-name-prefix erp-pipeline-{env} \
+  --query 'MetricAlarms[].{name:AlarmName,state:StateValue,reason:StateReason}'
 
-curl -s http://$IP/health/details | jq
-curl -s http://$IP/metrics | grep -E "http_request_duration|http_active_requests"
-curl -s http://$IP/api/productos/health/details | jq '.pool, .memory, .latency_ms'
+# Ajustar un umbral: editar terraform/observability.tf y aplicar solo el cambio revisado
+terraform -chdir=terraform plan -var-file=environments/{env}.tfvars
+terraform -chdir=terraform apply -var-file=environments/{env}.tfvars
 ```
 
-- `pool.waitingCount >0` → pool exhaustion (DB_POOL_MAX pequeño o leak)
-- `memory.heapUsed` cerca de 1GB → OOM, escala `cpu/memory` en `compute/main.tf:148`
-- `latency_ms` alto solo en `productos` → revisa `pg_stat_statements` + `log_min_duration_statement 1000` en `database/main.tf:60`
-
-### 4. Traces (si OTEL_ENABLED=true)
-
-Si la alarma es `high-latency-p95`, busca la traza del `requestId` lento:
-
-- Jaeger: `http://jaeger:16686` → Service `svc-productos` → Find Traces → filter `http.status_code=200` + `duration >500ms`
-- X-Ray (ADOT): Console X-Ray → Traces → filter `service=svc-productos`
-
-La traza muestra si el cuello es `pg.query` (DB) vs `express` vs `rate-limit`.
-
-### 5. Decisión
-
-| Hallazgo                                                                              | Acción                                                                                                                                     |
-| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `level=error` `stock insufficient` + `ServiceErrorCount`                              | Bug funcional → rollback `IMAGE_TAG=sha-prev bash scripts/deploy.sh` (ver `docs/runbooks/rollback.md:1`)                                   |
-| `ms >500` + `pg_stat_statements` top query `SELECT * FROM productos WHERE similarity` | Falta índice `pg_trgm` (`migrations/006_trigram_search.sql:5`) o `N+1` → hotfix índice                                                     |
-| `DBConnections 85` + `pool.waitingCount 5`                                            | Pool leak → revisa `pool.end()` en `SIGTERM` (`index.js:60`), sube `DB_POOL_MAX` o escala `desired_count`                                  |
-| `5xx` + `X-Request-Id` mismo en todos servicios                                       | NGINX `502` upstream no resuelve → `docker compose logs` / `ecs describe-services` events                                                  |
-| `sqs-backlog-high` o `sqs-oldest-message-high`                                        | Revisa `ecs describe-services`, logs `outbox_publish_*`, locks/errores de DB y el tamaño de `outbox_events`; no borres eventos pendientes  |
-| `sqs-dlq-not-empty`                                                                   | Inspecciona el mensaje y la causa en CloudWatch; corrige el consumidor y usa `aws sqs start-message-move-task` solo tras validar el replay |
-| Falso positivo (1 spike)                                                              | Silencia 5m y observa `ok_actions` — alarma volverá a `OK` en 5m (`treat_missing_data=notBreaching`)                                       |
-
-### 6. Cierre
-
-- Anota en `docs/runbooks/alert.md` la causa y fix (ej. `p95 por falta de índice trigram`).
-- Si fue rollback, abre PR con test que reproduce el 500 antes de re-deploy.
-- Si fue infra (DB conns), ajusta `database/main.tf:60` `parameter_group` o `compute/main.tf:110` log retention y `terraform apply -var-file=environments/{env}.tfvars`.
-
-## Silenciar / actualizar umbrales
-
-```bash
-# Edita observability.tf: threshold 500 → 800 para dev si es muy ruidoso
-# terraform plan -var-file=environments/dev.tfvars | grep high-latency
-terraform -chdir=terraform apply -var-file=environments/dev.tfvars
-```
-
-## Contacto
-
-- SNS `alerts` → `alert_email` en `environments/*.tfvars` (confirma email tras `apply`)
-- Dashboard `erp-pipeline-{env}-overview` link en `terraform output dashboard_name`
+No usar `set-alarm-state` para "silenciar": enmascara el problema y no cambia el SLO. Si una alarma es crónicamente ruidosa, el umbral o el SLI están mal definidos.

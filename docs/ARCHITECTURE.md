@@ -39,13 +39,14 @@
 │   ├── removed.tf            # one-time state migration (destroy=false) to bootstrap/
 │   ├── bootstrap/            # separate root: OIDC provider + role, immune to teardown
 │   │   └── {versions,variables,cicd}.tf
-│   ├── observability.tf      # metric filter + alarm (Fase 9.5)
-│   ├── dashboard.tf          # 6 widgets (Fase 9.4)
+│   ├── observability.tf      # metric filters + alarmas ECS/ALB/RDS/WAF/SQS (Fase 9 + 3A)
+│   ├── dashboard.tf          # 8 widgets (Fase 9.4 + 3A)
+│   ├── budgets.tf            # budget mensual + notificaciones SNS (Fase 3A)
 │   └── backend.tf            # S3 partial config encrypt=true (Fase 7.1 — supply via -backend-config)
-├── scripts/{build.sh,deploy.sh,chaos.sh,k6/{smoke,resilience}.js,bootstrap-backend.{sh,ps1}}
+├── scripts/{build.sh,deploy.sh,chaos.sh,restore-drill.sh,k6/{smoke,resilience}.js,bootstrap-backend.{sh,ps1}}
 ├── .releaserc.json            # Fase 11.6 semantic-release (commit-analyzer/changelog/github/git)
 ├── CHANGELOG.md               # Fase 11.6 Keep a Changelog conventional commits
-└── docs/{adr/{ADR-004..006},ARCHITECTURE.md,api.md,openapi.yaml,interview.md,demo.md,observability.md,runbooks/{deploy,rollback,drift,bootstrap}.md}
+└── docs/{adr/{ADR-004..006},ARCHITECTURE.md,api.md,openapi.yaml,interview.md,demo.md,observability.md,runbooks/{deploy,rollback,drift,bootstrap,alert,restore}.md}
 ```
 
 ## Flujo de request
@@ -168,8 +169,10 @@ Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → produ
 - `docs/security/rotation.md:1` — OIDC thumbprint + SSM/RDS password rotation (Fase 8.6)
 - `docs/adr/ADR-003-waf.md:1` — WAF toggle cuando `enable_alb=true` (Fase 8.8)
 - `docs/adr/ADR-004-scaling-strategy.md:1` — FinOps $0 → prod toggle ALB/autoscaling/redis/sqs (Fase 10.8)
-- `docs/observability.md:1` — logs Insights + metrics/prom + dashboard + tracing + health/details (Fase 9.8)
-- `docs/runbooks/alert.md:1` — triage <5m dashboard→logs→health→traces→rollback (Fase 9.8)
+- `docs/observability.md:1` — SLIs/SLOs/error budget + logs Insights + metrics/prom + dashboard + tracing + health/details (Fase 9.8 + 3A)
+- `docs/runbooks/alert.md:1` — severidades SEV1/2/3, escalado y triage dashboard→logs→health→traces→rollback
+- `docs/runbooks/restore.md:1` + `scripts/restore-drill.sh:1` — RTO/RPO, PITR/snapshot y drill de restore (Fase 3A)
+- `terraform/budgets.tf:1` — budget mensual por entorno + alertas 50/80/100% (Fase 3A)
 - `scripts/chaos.sh:1` + `scripts/k6/resilience.js:1` — resilience kill/cache/circuit 50 rps (Fase 10.7)
 - `docs/demo.md:1` — 2m demo loom + `frontend/index.html` `http://localhost:8080` + `GET /ordenes/:id?include=producto` BFF (Fase 11.3)
 - `docs/interview.md:1` — 17 Q&A rollback/FinOps/BFF/cache/WAF (Fase 11.7)
