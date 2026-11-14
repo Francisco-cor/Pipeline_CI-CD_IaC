@@ -44,7 +44,7 @@ open http://localhost:8080
 ## Verificación antes del PR
 
 ```bash
-make test-unit          # tests sin DB (packages/shared + gateway)
+make test-unit          # tests sin DB (shared salvo idempotency + gateway)
 make verify-full        # lint + format + compose + terraform + docs-links + tests con DB
 ```
 
@@ -152,7 +152,8 @@ terraform -chdir=terraform validate
 - Cada servicio: `jest --forceExit --coverage` con postgres real (service
   container en CI) y umbral de cobertura por servicio
   (`services/*/package.json`). Artefacto `coverage-*`.
-- `packages/shared` y `svc-gateway` no requieren DB: `make test-unit`.
+- `packages/shared` y `svc-gateway` no requieren DB: `make test-unit` (excluye
+  `idempotency.test.js`, que usa postgres; esa corre en `make test` y CI).
 - e2e: `docker compose -f docker-compose.yml up --build --wait` +
   `scripts/e2e.sh`.
 - Si tocás `migrations/sql/*`, la migración debe ser idempotente

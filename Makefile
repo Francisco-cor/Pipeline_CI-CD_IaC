@@ -16,7 +16,7 @@ help:
 	@echo "  make logs           - docker compose logs -f"
 	@echo "  make ps             - docker compose ps"
 	@echo "  make test           - npm test en workspaces (requiere postgres — usa compose)"
-	@echo "  make test-unit      - tests sin DB (packages/shared + gateway)"
+	@echo "  make test-unit      - tests sin DB (shared, salvo idempotency, + gateway)"
 	@echo "  make lint           - eslint --cache en todos los workspaces (Fase 6.5)"
 	@echo "  make lint-fix       - eslint --fix"
 	@echo "  make format         - prettier --write"
@@ -96,7 +96,8 @@ test:
 	npm run test --workspaces --if-present
 
 test-unit:
-	npm test --workspace @erp/shared -- --passWithNoTests
+	# idempotency.test.js needs a real postgres; it runs in `make test` / CI.
+	npm test --workspace @erp/shared -- --passWithNoTests --forceExit --testPathIgnorePatterns=idempotency
 	npm test --workspace svc-gateway
 
 docs-links:
