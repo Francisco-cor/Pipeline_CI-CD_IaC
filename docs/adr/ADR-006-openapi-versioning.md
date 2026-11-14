@@ -78,4 +78,5 @@ Testing contract: `packages/test-helpers` + `jest` coverage por servicio con obj
 - `packages/shared/src/middleware.js:48` `helmet/cors/compression/requestId` + `nginx.conf:14` `limit_req_zone`
 - `frontend/app.js:23` `loadProductos` + `X-Cache`
 - `services/ordenes/src/routes/ordenes.js:152` BFF `include=producto`
-- `PLAN_ELEVACION_11_FASES.md:114` Fase 3
+- `docs/adr/ADR-007-security-model.md:1` auth/RBAC/audit que protegen el contrato
+- `docs/api.md:1` guía de uso y ejemplos `curl`

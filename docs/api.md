@@ -192,11 +192,12 @@ curl -X POST http://localhost:80/api/v1/stock \
   -d '{"producto_id":1,"cantidad":5,"tipo":"entrada"}' | jq
 ```
 
-## Colecciones
+## Colecciones y clientes
 
-- `docs/requests.http` — VS Code REST Client
-- `docs/bruno/collection.json` — Bruno (ver `docs/api.http`)
-- Importar `docs/openapi.yaml` en Insomnia/Postman.
+- `docs/requests.http` — VS Code REST Client (requests listos para ejecutar).
+- `docs/openapi.yaml` — contrato OpenAPI 3.1; importable en Insomnia/Postman.
+- No hay colección Bruno versionada: la referencia que existía
+  (`docs/bruno/collection.json`) nunca se agregó al repo y se eliminó.
 
 ## Compatibilidad
 

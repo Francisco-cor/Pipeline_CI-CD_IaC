@@ -175,4 +175,5 @@ terraform -chdir=terraform apply -var-file=environments/prod.tfvars
 - `scripts/chaos.sh:1` + `scripts/k6/resilience.js:1`
 - `docs/adr/ADR-001-public-subnets-no-nat-gateway.md:1` FinOps base
 - `docs/adr/ADR-003-waf.md:1` WAF cuando enable_alb
-- `PLAN_ELEVACION_11_FASES.md:246` Fase 10.1-10.8
+- `docs/observability.md:1` SLOs, alarmas y dashboards de las señales de escala
+- `docs/runbooks/deploy.md:1` promoción dev→staging→prod y rollback
