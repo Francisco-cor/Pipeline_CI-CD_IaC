@@ -1,7 +1,7 @@
 # ERP Pipeline — Cloud Native Microservices, CI/CD with IaC, Secrets Management
 
 ![CI/CD Pipeline](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/actions/workflows/pipeline.yml/badge.svg)
-![Node version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)
+![Node version](https://img.shields.io/badge/node-%3E%3D24.15.0-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Express.js](https://img.shields.io/badge/express-4.x-lightgrey?logo=express&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?logo=docker&logoColor=white)
@@ -248,7 +248,7 @@ curl "http://localhost:80/api/v1/bff/ordenes/1" | jq
 
 ## Quick Start (Local Dev) — Fase 2: compose + monorepo
 
-Prerrequisitos: Node 24 (`.nvmrc:1`), Docker + compose v2.
+Prerrequisitos: Node 24.15+ (`.nvmrc:1`), Docker + compose v2.
 
 ```bash
 git clone <repo> && cd Pipeline_CI-CD_IaC

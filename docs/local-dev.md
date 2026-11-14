@@ -4,7 +4,7 @@
 
 ## Requisitos
 
-- Node 24 (`.nvmrc:1`, `.tool-versions:1`)
+- Node 24.15+ (`.nvmrc:1`, `.tool-versions:1`)
 - Docker Engine + compose v2
 - `npm install` en root (workspaces)
 
@@ -33,8 +33,9 @@ make down
 
 ## Makefile vs scripts/dev.sh
 
-- `Makefile:1` — `make dev|prod|down|logs|ps|nuke|lint|format|verify`
+- `Makefile:1` — `make setup|hooks|dev|prod|down|logs|ps|nuke|lint|format|test-unit|verify|verify-full`
 - `scripts/dev.sh:1` — wrapper bash equivalente para quien no usa make.
+- `.githooks/pre-commit:1` — prettier/eslint/terraform fmt sobre staged (`make hooks`).
 
 ## Volumes
 

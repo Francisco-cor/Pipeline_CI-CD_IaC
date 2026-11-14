@@ -4,7 +4,7 @@
 
 ## Stack (resumen)
 
-- **Runtime:** Node 24 + Express 5 + `pg` 8, PostgreSQL 15 en RDS `db.t3.micro`.
+- **Runtime:** Node 24.15+ + Express 5 + `pg` 8, PostgreSQL 15 en RDS `db.t3.micro`.
 - **Infra:** AWS ECS Fargate (task 0.5 vCPU/1GB), ECR, RDS, SSM Parameter Store, CloudWatch, SNS, ElastiCache/SQS opcionales (Fase 10).
 - **IaC:** Terraform 1.9+ modular (`terraform/modules/*`), backend S3+DynamoDB per env (`terraform/backend.tf:1-20` `encrypt=true` + `environments/backend-*.hcl:1` + `environments/*.tfvars:1`), `terraform/.tflint.hcl:1` + `checkov`, toggles `enable_nat_gateway/service_discovery/alb/autoscaling/redis/sqs` (Fase 7+10).
 - **CI/CD:** GitHub Actions OIDC (`terraform/bootstrap/cicd.tf:17-65`, `ADR-002`), `concurrency` + `paths-filter` + `lint --cache` + `gitleaks/trivy` + `tflint/checkov` + `buildx gha cache` + `coverage` (`pipeline.yml:18`, `release.yml:1`) — Fase 6 (<6m PR), `teardown.yml:15-60` prod guard (Fase 7.8), `semantic-release` (`package.json:12`, `.releaserc.json:1`) Fase 11.6, promoción dev→staging→prod + SBOM/provenance + canary (Fase 3B).
@@ -136,7 +136,7 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 
 ## Convenciones
 
-- **Node 24** (`.nvmrc:1`, `.tool-versions:1`), **LF** (`.editorconfig:1`), **Prettier** (`.prettierrc:1`), **ESLint** (`eslint:recommended` + `import/recommended` en `.eslintrc.js:8`).
+- **Node 24.15+** (`.nvmrc:1`, `.tool-versions:1`), **LF** (`.editorconfig:1`), **Prettier** (`.prettierrc:1`), **ESLint** (`eslint:recommended` + `import/recommended` en `.eslintrc.js:8`).
 - Commits `tipo(scope): msg`, PRs 1 scope, dependencias via `.github/dependabot.yml` (agrupadas, mensuales).
 
 ## Escalabilidad & Resiliencia (Fase 10)

@@ -3,21 +3,26 @@
 # Fase 2: agrega atajos para compose, lint, test, format
 # Uso: make help
 
-.PHONY: help dev dev-detached prod down logs ps test lint lint-fix format format-check nuke clean verify tf-fmt tf-validate tf-lint tf-checkov sec-scan
+.PHONY: help setup hooks dev dev-detached prod down logs ps test test-unit lint lint-fix format format-check docs-links commitlint nuke clean verify verify-full tf-fmt tf-validate tf-lint tf-checkov tf-plan-dev tf-plan-prod sec-scan
 
 # Por defecto muestra ayuda
 help:
 	@echo "ERP Pipeline — targets:"
+	@echo "  make setup          - npm ci + .env + postgres healthy + migrations (bootstrap local)"
+	@echo "  make hooks          - activa .githooks (pre-commit: prettier/eslint/terraform fmt)"
 	@echo "  make dev            - docker compose up --build (con hot-reload via override)"
 	@echo "  make prod           - docker compose -f docker-compose.yml up --build (sin override)"
 	@echo "  make down           - docker compose down"
 	@echo "  make logs           - docker compose logs -f"
 	@echo "  make ps             - docker compose ps"
 	@echo "  make test           - npm test en workspaces (requiere postgres — usa compose)"
+	@echo "  make test-unit      - tests sin DB (packages/shared + gateway)"
 	@echo "  make lint           - eslint --cache en todos los workspaces (Fase 6.5)"
 	@echo "  make lint-fix       - eslint --fix"
 	@echo "  make format         - prettier --write"
 	@echo "  make format-check   - prettier --check (Fase 6.5)"
+	@echo "  make docs-links     - valida links relativos en .md tracked (sin red)"
+	@echo "  make commitlint     - valida conventional commits (RANGE=main..HEAD opcional)"
 	@echo "  make tf-validate    - terraform init -backend=false && validate (Fase 6.4)"
 	@echo "  make tf-lint        - tflint --init && --recursive (Fase 6.4)"
 	@echo "  make tf-checkov     - checkov -d terraform --quiet (Fase 6.4)"
@@ -26,6 +31,24 @@ help:
 	@echo "  make sec-scan       - gitleaks detect + trivy fs (Fase 6.3)"
 	@echo "  make nuke           - down -v --remove-orphans (borra pgdata)"
 	@echo "  make verify         - lint + format-check + compose config + tf fmt/validate (Fase 7)"
+	@echo "  make verify-full    - verify + docs-links + tests con postgres real"
+	@echo ""
+	@echo "Node 24.15+ (nvm use / asdf install). Ver CONTRIBUTING.md."
+
+# ---------------------------------------------------------------------------
+# Bootstrap (una vez por clone)
+# ---------------------------------------------------------------------------
+setup:
+	@test -f .env || (cp .env.example .env && echo "setup: created .env from .env.example")
+	npm ci
+	docker compose up -d --wait postgres
+	docker compose run --rm migrations
+	@echo "setup: ok — run 'make dev' (hot-reload) or 'make test-unit'"
+
+hooks:
+	chmod +x .githooks/pre-commit
+	git config core.hooksPath .githooks
+	@echo "hooks: core.hooksPath -> .githooks (pre-commit activo)"
 
 # ---------------------------------------------------------------------------
 # Compose
@@ -72,6 +95,16 @@ format-check:
 test:
 	npm run test --workspaces --if-present
 
+test-unit:
+	npm test --workspace @erp/shared -- --passWithNoTests
+	npm test --workspace svc-gateway
+
+docs-links:
+	bash scripts/check-docs-links.sh
+
+commitlint:
+	node scripts/commitlint.js "$${RANGE:-HEAD}"
+
 # ---------------------------------------------------------------------------
 # Infra (Fase 6.4 + 7.1)
 # ---------------------------------------------------------------------------
@@ -108,3 +141,14 @@ verify: lint format-check
 	terraform -chdir=terraform fmt -check -recursive && echo "terraform fmt: ok" || (echo "terraform fmt: run 'make tf-fmt'" && exit 1)
 	terraform -chdir=terraform init -backend=false -input=false >/dev/null && terraform -chdir=terraform validate -no-color && echo "terraform validate: ok"
 	@echo "verify: ok — lint + format + compose + tf fmt/validate (Fase 7) — for full env check: make tf-plan-dev tf-plan-prod"
+
+# Verify completo: lo anterior + links de docs + tests contra postgres real.
+# Levanta postgres (solo ese servicio), aplica migraciones y corre la suite con
+# DATABASE_URL apuntando al puerto publicado en localhost.
+verify-full: verify docs-links
+	docker compose up -d --wait postgres
+	docker compose run --rm migrations
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	  DATABASE_URL="postgresql://$${POSTGRES_USER:-erpadmin}:$${POSTGRES_PASSWORD:-test_password}@localhost:$${POSTGRES_PORT:-5432}/$${POSTGRES_DB:-erpdb}" \
+	  NODE_ENV=test npm test
+	@echo "verify-full: ok — lint + format + compose + tf + docs-links + tests con postgres"

@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# .githooks/pre-commit — fast, local checks on staged files.
+#
+# Enable once per clone:  make hooks
+#
+# Rules:
+#   - prettier --check on staged .js/.json/.md/.yml/.yaml
+#   - eslint on staged .js (root config covers services/packages/frontend/scripts)
+#   - terraform fmt -check on staged .tf
+#
+# Missing tools do NOT block the commit: the hook prints how to install them and
+# skips that check. A tool that is installed and reports an error DOES block.
+
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root" || exit 1
+
+mapfile -d '' -t staged < <(git diff --cached --name-only --diff-filter=ACMR -z)
+
+if [ "${#staged[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+prettier_files=()
+eslint_files=()
+tf_files=()
+
+for file in "${staged[@]}"; do
+  [ -f "$file" ] || continue
+  case "$file" in
+    *.js | *.json | *.md | *.yml | *.yaml) prettier_files+=("$file") ;;
+  esac
+  case "$file" in
+    *.js) eslint_files+=("$file") ;;
+  esac
+  case "$file" in
+    *.tf) tf_files+=("$file") ;;
+  esac
+done
+
+status=0
+
+# --- Prettier ---------------------------------------------------------------
+if [ "${#prettier_files[@]}" -gt 0 ]; then
+  if ! command -v npx >/dev/null 2>&1; then
+    echo "pre-commit: npx not found — skipping prettier (install Node 24.15+ and run 'npm ci')." >&2
+  elif npx --no-install prettier --version >/dev/null 2>&1; then
+    if ! npx --no-install prettier --check "${prettier_files[@]}"; then
+      echo "pre-commit: prettier failed. Run: npx prettier --write <files>" >&2
+      status=1
+    fi
+  else
+    echo "pre-commit: prettier is not installed — run 'npm ci' (skipping format check)." >&2
+  fi
+fi
+
+# --- ESLint -----------------------------------------------------------------
+if [ "${#eslint_files[@]}" -gt 0 ]; then
+  if ! command -v npx >/dev/null 2>&1; then
+    echo "pre-commit: npx not found — skipping eslint." >&2
+  elif npx --no-install eslint --version >/dev/null 2>&1; then
+    if ! npx --no-install eslint "${eslint_files[@]}"; then
+      echo "pre-commit: eslint failed. Run: npx eslint --fix <files> or 'npm run lint:fix'." >&2
+      status=1
+    fi
+  else
+    echo "pre-commit: eslint is not installed — run 'npm ci' (skipping lint)." >&2
+  fi
+fi
+
+# --- Terraform --------------------------------------------------------------
+if [ "${#tf_files[@]}" -gt 0 ]; then
+  if ! command -v terraform >/dev/null 2>&1; then
+    echo "pre-commit: terraform not found — skipping 'terraform fmt -check' (install Terraform 1.9+)." >&2
+  elif ! terraform fmt -check -no-color "${tf_files[@]}"; then
+    echo "pre-commit: terraform fmt failed. Run: terraform fmt <files>" >&2
+    status=1
+  fi
+fi
+
+exit "$status"
