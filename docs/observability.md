@@ -15,6 +15,65 @@
 
 ---
 
+## SLIs, SLOs y error budget
+
+Un SLO sin ventana, presupuesto y acción asociada es solo un número. Esta sección define **qué medimos** (SLI), **cuánto prometemos** (SLO), **cuánto podemos fallar** (error budget) y **qué alarma lo vigila** (page vs ticket).
+
+### SLIs
+
+| SLI                     | Definición                                                                                              | Fuente                                                                                                | Ventana de evaluación       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------- |
+| **Disponibilidad**      | `1 - (5xx / requests)` para tráfico HTTP válido. Un 5xx o un target sin healthy host cuenta como fallo. | `AWS/ApplicationELB` `RequestCount`, `HTTPCode_Target_5XX_Count`, `UnHealthyHostCount`                | 5m / 1h / 6h / 3d (rolling) |
+| **Tasa 5xx**            | `HTTPCode_Target_5XX_Count / RequestCount * 100` (porcentaje).                                          | Metric math sobre ALB; en modo sin ALB, `Http5xxCount` (metric filter) sobre el total de requests EMF | 5m / 1h / 6h / 3d (rolling) |
+| **Latencia p95**        | Percentil 95 de `TargetResponseTime` (ALB) o `HttpLatency` (EMF, app) en una ventana de 5m.             | `AWS/ApplicationELB` `TargetResponseTime` `p95`; `${project}/${env}` `HttpLatency` `p95`              | 5m / 1h / 6h / 3d (rolling) |
+| **Frescura de la cola** | Edad del mensaje más viejo en la cola de órdenes (solo si `enable_sqs`).                                | `AWS/SQS` `ApproximateAgeOfOldestMessage`                                                             | 5m                          |
+| **Tareas vivas**        | `RunningTaskCount >= DesiredCount` para el servicio ECS.                                                | `AWS/ECS` `RunningTaskCount`, `DesiredCount`                                                          | 1m                          |
+
+La disponibilidad y la tasa 5xx son dos vistas del mismo contrato: disponibilidad es el complemento de la tasa de error. Se mantienen separadas porque la primera incluye "no hay target sano" (fallo total) y la segunda mide respuestas 5xx reales.
+
+### SLOs propuestos
+
+| SLO                   | Objetivo mensual       | Error budget (30 días)                                            | Justificación                                                                                                |
+| --------------------- | ---------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Disponibilidad**    | **99.9%**              | **43m 12s** de indisponibilidad total; ~0.1% de requests fallidos | Un solo AZ y RDS single-AZ no sostienen 99.95%. 99.9% es defendible con el circuito de rollback de ECS.      |
+| **Tasa 5xx**          | **< 1%** de requests   | 1% del volumen mensual de requests                                | Alineado con el budget de disponibilidad; evita paging por dos 5xx aislados y detecta fallos sistémicos.     |
+| **Latencia p95**      | **< 300ms**            | 5% de requests pueden superar 300ms (si se mide por request)      | `GET /productos` con índice trigram y pool pequeño debe quedar muy por debajo; 300ms deja margen a RDS frío. |
+| **Frescura de cola**  | p95 < 5 min            | 5% de ventanas de 5m pueden superar 5 min                         | El outbox es asíncrono; 5 min es el punto donde el usuario ya percibe la orden como "perdida".               |
+| **Recuperación (DR)** | RTO ≤ 2h, RPO ≤ 15 min | N/A (se valida con restore drill)                                 | Ver `docs/runbooks/restore.md`; el RPO real es el `LatestRestorableTime` de RDS.                             |
+
+Los umbrales de las alarmas son **más laxos** que el SLO a propósito: una alarma de página al 500ms no espera a agotar el presupuesto de 300ms; dispara cuando el burn rate ya es insostenible, y el SLO se evalúa con la ventana completa.
+
+### Error budget y burn rate
+
+El error budget mensual se calcula sobre una ventana móvil de 30 días:
+
+```text
+budget_disponibilidad = (1 - 0.999) * 30d = 43m 12s
+budget_5xx            = 0.01 * requests_mensuales
+budget_latencia       = 0.05 * requests_mensuales (p95 < 300ms)
+```
+
+Burn rate = `error_rate_observado / error_rate_permitido`. Para 99.9%, el burn rate 1 consume el 100% del budget en 30 días; 14.4 lo consume en ~2 días (1h de observación = 2% del budget).
+
+| Ventana larga | Ventana corta | Burn rate | Budget consumido | Acción            | Alarmas que lo cubren                                                                 |
+| ------------- | ------------- | --------- | ---------------- | ----------------- | ------------------------------------------------------------------------------------- |
+| 1h            | 5m            | **14.4x** | 2% en 1h         | **Page (SEV1)**   | `alb-5xx-ratio`, `high-error-rate`, `ecs-running-tasks-low`, `alb-unhealthy-hosts`    |
+| 6h            | 30m           | **6x**    | 5% en 6h         | **Page (SEV2)**   | `high-5xx-rate`, `alb-latency-p95`, `high-latency-p95`, `db-connections-high`         |
+| 3d            | 6h            | **1x**    | 10% en 3d        | **Ticket (SEV3)** | `rds-cpu-high`, `rds-free-storage-low`, `waf-blocked-requests-high`, `sqs-*`          |
+| 30d           | —             | 1x        | 100% en 30d      | Revisión semanal  | Dashboard + Budgets; no hay alarma dedicada porque no es una caída, es una tendencia. |
+
+**Limitación actual:** Terraform implementa umbrales fijos (una sola ventana), no pares multi-ventana completos. La tabla indica qué alarma representa cada nivel; la evaluación exacta de burn rate se hace con Metrics Insights/consulta manual en el dashboard. Endurecerlo a pares 1h/5m y 6h/30m con `evaluation_periods` + `datapoints_to_alarm` es el siguiente paso (ver "Pendiente").
+
+### Alarma de página vs ticket
+
+- **Page (despierta a on-call):** pérdida de disponibilidad, 5xx sistémico, latencia que agota budget rápido, RDS sin espacio. Requiere acción humana inmediata y se enruta al webhook de PagerDuty/Opsgenie (`alert_webhook_url`).
+- **Ticket (horario laboral):** tendencia de CPU, WAF bloqueando tráfico, backlog de cola no crítico, presupuesto. Se atiende en el siguiente bloque de trabajo; no justifica interrumpir la noche.
+- **Informativo:** `ok_actions` vuelve a notificar el cierre; sirve para confirmar recuperación, no para abrir incidente.
+
+Todas las alarmas publican al mismo topic SNS (`alerts`). La clasificación page/ticket es operativa: el relay de PagerDuty/Opsgenie filtra por `alarm_name` (o por la severidad documentada en `docs/runbooks/alert.md`). Si se necesita separación dura, el siguiente paso es un topic `alerts-page` y otro `alerts-ticket` (no implementado para no duplicar la infraestructura actual).
+
+---
+
 ## Logs — correlation-id
 
 **Flow:** `X-Request-Id` header in → `requestIdMiddleware` (`middleware.js:12`) `storage.enterWith({requestId})` → `logger.info` lee `storage.getStore().requestId` (`logger.js:15`) → JSON `requestId` en cada línea → NGINX `proxy_set_header X-Request-Id $request_id` → CloudWatch.
@@ -108,16 +167,18 @@ CloudWatch extrae `HttpLatency` automáticamente sin agente. Ver en **Metrics �
 
 ---
 
-## Dashboard — `terraform/dashboard.tf:10`
+## Dashboard — `terraform/dashboard.tf:1`
 
-6 widgets (ver `dashboard.tf`):
+8 widgets (ver `dashboard.tf`):
 
 1. **ECS CPU/Mem** — `AWS/ECS` `CPUUtilization`/`MemoryUtilization` `ClusterName=erp-pipeline-{env}-cluster` 5m `Average`
 2. **ServiceErrorCount** — `${project}/${env}` `Sum` 5m, threshold 10 (rojo)
 3. **HttpLatency p95 + 5xx** — EMF `HttpLatency p95` + `Http5xxCount Sum` 5m, annot `500ms`
-4. **RDS DBConnections + CPU** — `AWS/RDS` `DatabaseConnections` `Maximum` + `CPUUtilization` `DBInstanceIdentifier=erp-pipeline-{env}-postgres`
+4. **RDS DBConnections + CPU + free storage** — `AWS/RDS` `DatabaseConnections` `Maximum`, `CPUUtilization` y `FreeStorageSpace` `Minimum` (eje derecho) para `erp-pipeline-{env}-postgres`
 5. **Logs — Top 5 errors** — Insights `filter level=error | stats count() by service,message`
 6. **Latency percentiles** — `p50/p95/p99` de `HttpLatency`
+7. **ECS Running vs Desired** — `AWS/ECS` `RunningTaskCount` vs `DesiredCount` 60s (señal de disponibilidad)
+8. **ALB unhealthy + 5xx ratio** — `AWS/ApplicationELB` `UnHealthyHostCount`, `HTTPCode_Target_5XX_Count`/`RequestCount` con metric math; muestra "disabled" si `enable_alb=false`
 
 **Crear/ver:**
 
@@ -132,21 +193,33 @@ aws cloudwatch get-dashboard --dashboard-name erp-pipeline-dev-overview --region
 
 ---
 
-## Alarmas — `terraform/observability.tf:49-150`
+## Alarmas — `terraform/observability.tf:1`
 
-| Alarma                    | Métrica                                                   | Umbral   | Acción                       |
-| ------------------------- | --------------------------------------------------------- | -------- | ---------------------------- |
-| `high-error-rate`         | `ServiceErrorCount` `Sum 5m`                              | `>10`    | SNS `alerts`                 |
-| `high-latency-p95`        | `HttpLatency` `p95 5m`                                    | `>500ms` | SNS                          |
-| `high-5xx-rate`           | `Http5xxCount` `Sum 5m`                                   | `>10`    | SNS                          |
-| `db-connections-high`     | `AWS/RDS DatabaseConnections` `Maximum 5m`                | `>80`    | SNS                          |
-| `sqs-backlog-high`        | `AWS/SQS ApproximateNumberOfMessagesVisible` `Maximum 5m` | `>10`    | SNS cuando `enable_sqs=true` |
-| `sqs-oldest-message-high` | `AWS/SQS ApproximateAgeOfOldestMessage` `Maximum 5m`      | `>300s`  | SNS cuando `enable_sqs=true` |
-| `sqs-dlq-not-empty`       | `AWS/SQS ApproximateNumberOfMessagesVisible` `Maximum 1m` | `>=1`    | SNS cuando `enable_sqs=true` |
+| Alarma                      | Métrica / expresión                                                                          | Umbral    | `treat_missing_data` | Tipo            | Condición de creación |
+| --------------------------- | -------------------------------------------------------------------------------------------- | --------- | -------------------- | --------------- | --------------------- |
+| `ecs-running-tasks-low`     | `IF(RunningTaskCount < DesiredCount, 1, 0)` `Average 60s`, 2 datapoints                      | `>0`      | `breaching`          | **Page (SEV1)** | siempre               |
+| `alb-unhealthy-hosts`       | `AWS/ApplicationELB UnHealthyHostCount` `Maximum 60s`, 2 datapoints                          | `>0`      | `breaching`          | **Page (SEV1)** | `enable_alb=true`     |
+| `alb-5xx-ratio`             | `IF(RequestCount > 0, 100*HTTPCode_Target_5XX_Count/RequestCount, 0)` `Sum 5m`, 2 datapoints | `>1%`     | `notBreaching`       | **Page (SEV2)** | `enable_alb=true`     |
+| `alb-latency-p95`           | `AWS/ApplicationELB TargetResponseTime` `p95 5m`, 2 datapoints                               | `>0.5s`   | `notBreaching`       | **Page (SEV2)** | `enable_alb=true`     |
+| `high-error-rate`           | `ServiceErrorCount` `Sum 5m`                                                                 | `>10`     | `notBreaching`       | **Page (SEV2)** | siempre               |
+| `high-latency-p95`          | `HttpLatency` `p95 5m`                                                                       | `>500ms`  | `notBreaching`       | Ticket (SEV3)   | siempre               |
+| `high-5xx-rate`             | `Http5xxCount` `Sum 5m`                                                                      | `>10`     | `notBreaching`       | Ticket (SEV3)   | siempre               |
+| `rds-free-storage-low`      | `AWS/RDS FreeStorageSpace` `Minimum 5m`, 2 datapoints                                        | `<10 GiB` | `breaching`          | **Page (SEV2)** | siempre               |
+| `rds-cpu-high`              | `AWS/RDS CPUUtilization` `Average 5m`, 3 datapoints                                          | `>80%`    | `notBreaching`       | Ticket (SEV3)   | siempre               |
+| `db-connections-high`       | `AWS/RDS DatabaseConnections` `Maximum 5m`                                                   | `>80`     | `notBreaching`       | **Page (SEV2)** | siempre               |
+| `waf-blocked-requests-high` | `AWS/WAFV2 BlockedRequests` `Sum 5m` (`Rule=ALL`)                                            | `>1000`   | `notBreaching`       | Ticket (SEV3)   | `enable_waf=true`     |
+| `sqs-backlog-high`          | `AWS/SQS ApproximateNumberOfMessagesVisible` `Maximum 5m`                                    | `>10`     | `notBreaching`       | Ticket (SEV3)   | `enable_sqs=true`     |
+| `sqs-oldest-message-high`   | `AWS/SQS ApproximateAgeOfOldestMessage` `Maximum 5m`                                         | `>300s`   | `notBreaching`       | Ticket (SEV3)   | `enable_sqs=true`     |
+| `sqs-dlq-not-empty`         | `AWS/SQS ApproximateNumberOfMessagesVisible` `Maximum 1m`                                    | `>=1`     | `notBreaching`       | **Page (SEV2)** | `enable_sqs=true`     |
 
-Todas: `treat_missing_data=notBreaching` + `ok_actions` para cerrar.
+**Por qué `breaching` solo en algunas:** la ausencia de `RunningTaskCount`, `UnHealthyHostCount` o `FreeStorageSpace` significa que el recurso dejó de reportar, y eso ya es una caída (servicio sin tareas, ALB sin targets, RDS parado o inaccesible). En cambio, WAF/SQS/latencia sin tráfico producen silencio normal: marcarlas `breaching` generaría páginas por un entorno idle. `db-connections-high` mantiene `notBreaching` porque un RDS recién reiniciado tarda en publicar.
 
-**SNS:** `observability.tf:17` `aws_sns_topic.alerts` + `email` subscription si `alert_email` seteado en `environments/*.tfvars`. Confirma email tras `apply`.
+**SNS:** `aws_sns_topic.alerts` publica a:
+
+- `alert_email` (suscripción email, requiere confirmar el correo tras `apply`);
+- `alert_webhook_url` (opcional, HTTPS, `endpoint_auto_confirms=true`) para PagerDuty/Opsgenie o un relay SNS→Slack. Un webhook de Slack "incoming" **no** implementa el handshake de SNS: necesita un relay. Si el endpoint no confirma automáticamente, la suscripción queda `PendingConfirmation` y no llega nada.
+
+Las alarmas SQS/DLQ ya existentes se mantienen y publican al mismo topic; no se duplicaron. La alarma de `DatabaseConnections` también se mantiene sin duplicar.
 
 **Test alarma (<5m):**
 
@@ -156,9 +229,30 @@ for i in {1..11}; do curl -s http://localhost:80/api/v1/productos -H "Content-Ty
 # Verifica: debe loggear level=error y metric filter incrementa
 aws cloudwatch describe-alarms --alarm-names erp-pipeline-dev-high-error-rate --query 'MetricAlarms[0].StateValue'
 # Debe pasar a ALARM en <5m; luego a OK cuando paren errores
+
+# Ver el inventario completo creado por Terraform
+terraform -chdir=terraform output -json alarm_names | jq -r '.[]'
 ```
 
-**Runbook triaje:** ver `docs/runbooks/alert.md:1` (Fase 9.8) — pasos: Logs Insights → `requestId` → `pool.details` → `metrics` → `rollback` si needed.
+**Runbook triaje:** ver `docs/runbooks/alert.md:1` — severidades, escalado y pasos por alarma.
+
+### FinOps — budgets y tags
+
+- `terraform/budgets.tf` crea un `aws_budgets_budget` mensual (`COST`, `MONTHLY`) por entorno con `limit_amount = var.monthly_budget_usd`.
+- Notificaciones **ACTUAL al 50/80/100%** al mismo topic SNS (`alerts`). AWS Budgets acepta SNS directamente, así que no hace falta el fallback por email.
+- El budget se filtra por `TagKeyValue = user:Environment$<env>` para que dev/staging/prod no midan el gasto total de la cuenta. **Requiere activar el cost allocation tag `Environment` una vez** en Billing → Cost allocation tags (o `aws ce update-cost-allocation-tags-status --cost-allocation-tags-status TagKey=Environment,Status=Active`). Sin activarlo, el budget muestra $0 y no alerta.
+- `Owner` y `CostCenter` se aplican a todos los recursos vía `default_tags` (`terraform/main.tf`) para chargeback y para que el runbook sepa a quién escalar.
+- Presupuestos iniciales: **dev $50**, **staging $150**, **prod $300** (`terraform/environments/*.tfvars`). Ajustar tras el primer mes con datos reales de Cost Explorer.
+- La política del topic permite `budgets.amazonaws.com` publicar con condición `aws:SourceAccount`, sin abrir el topic a otras cuentas.
+
+**Verificar:**
+
+```bash
+aws budgets describe-budgets --account-id "$(aws sts get-caller-identity --query Account --output text)" \
+  --query 'Budgets[].BudgetName'
+aws ce get-cost-and-usage --time-period Start=2026-11-01,End=2026-12-01 --granularity MONTHLY \
+  --metrics UnblendedCost --group-by Type=TAG,Key=Environment
+```
 
 ---
 
@@ -245,7 +339,7 @@ docker compose logs productos | grep -m1 '"_aws"' | jq
 curl -s http://localhost:3001/health/details | jq '.pool, .memory'
 
 # 4. Dashboard (si terraform apply hecho)
-aws cloudwatch get-dashboard --dashboard-name erp-pipeline-dev-overview --region us-east-2 | jq '.DashboardBody | fromjson | .widgets | length' # debe ser 6
+aws cloudwatch get-dashboard --dashboard-name erp-pipeline-dev-overview --region us-east-2 | jq '.DashboardBody | fromjson | .widgets | length' # debe ser 8
 
 # 5. Alarma <5m
 for i in {1..11}; do curl -s -X POST http://localhost:80/api/v1/productos -H "Content-Type: application/json" -d '{"nombre":"","precio":-1}' >/dev/null; done; echo "11 errors sent — espera 5m y revisa SNS / console"
@@ -255,16 +349,30 @@ for i in {1..11}; do curl -s -X POST http://localhost:80/api/v1/productos -H "Co
 
 - Logs retention 7d dev ($0.03/GB) vs 90d prod
 - Dashboard $3/mes
-- Alarms $0.10/mes cada una (4 = $0.40)
+- Alarmas $0.10/mes cada una (14 en prod = ~$1.40; dev sin ALB/WAF/SQS = ~$0.70)
+- Budgets: $0 (los primeros 2 budgets son gratuitos; el presupuesto de notificaciones es gratuito)
 - Tracing si `OTEL_ENABLED=false` $0; si true, OTel collector + X-Ray $5/100k traces (sampling 10% reduce)
-- Total Fase 9 dev: ~$3.50/mes extra (aceptado para observabilidad)
+- Total Fase 9 + Fase 3A dev: ~$4.50/mes extra (aceptado para observabilidad)
+
+## Pendiente (fuera de Fase 3A)
+
+- **Canary sintético**: un job que ejecute `GET /health` y un CRUD de lectura cada minuto desde fuera de la VPC, publique `SyntheticCanarySuccess` y alerte si falla 2 veces seguidas. Hoy la disponibilidad se infiere del ALB, que no ve una caída de DNS/TLS antes del balanceador.
+- **Alarmas multi-ventana completas**: pares 1h/5m (14.4x) y 6h/30m (6x) con `evaluation_periods` + `datapoints_to_alarm` para cada SLO. La tabla de burn rate ya define la política; falta materializarla en Terraform.
+- **PagerDuty/Opsgenie real**: `alert_webhook_url` queda vacío hasta que exista el servicio y la rotación on-call. Mientras tanto el canal es email.
+- **DR cross-region**: el restore drill valida RTO/RPO en la misma región. Un plan multi-región requiere réplica de lectura RDS, bucket de backups replicado y DNS failover (Route 53).
+- **AWS Backup / vault lock**: hoy la recuperación depende de snapshots automáticos de RDS (1 día dev/staging, 7 días prod). Un vault con retención larga e immutabilidad es el siguiente control.
+- **Cost Anomaly Detection**: los budgets avisan del gasto acumulado; un detector de anomalías avisa de un pico diario antes de llegar al umbral mensual.
 
 ## Referencias
 
 - `packages/shared/src/logger.js:14` + `middleware.js:12` correlation-id
 - `packages/shared/src/metrics.js:20` prom-client + EMF
-- `terraform/dashboard.tf:10` 6 widgets
-- `terraform/observability.tf:49-250` 4 alarmas base + 3 alarmas SQS condicionales + 2 metric filters
+- `terraform/dashboard.tf:1` 8 widgets (incluye ECS tasks y ALB health)
+- `terraform/observability.tf:1` alarmas ECS/ALB/RDS/WAF/SQS + 2 metric filters
+- `terraform/budgets.tf:1` budget mensual + política SNS para Budgets
+- `docs/runbooks/alert.md:1` severidades, escalado y triaje
+- `docs/runbooks/restore.md:1` RTO/RPO y restore drill
+- `scripts/restore-drill.sh:1` restore automatizado (dry-run por defecto)
 - `packages/shared/src/tracing.js:20` OTel SDK
 - `services/*/src/routes/health.js:60` details
 - `nginx/nginx.conf:45` metrics/health proxy
