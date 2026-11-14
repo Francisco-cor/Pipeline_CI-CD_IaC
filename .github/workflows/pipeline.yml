@@ -232,6 +232,27 @@ jobs:
           echo "- prettier --check passed" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
+  # Job 1b.0: Documentation links (Fase 4)
+  # No DB, no AWS, no npm install: just git + bash. A broken relative link in a
+  # tracked .md file fails the PR before it reaches main.
+  # ---------------------------------------------------------------------------
+  docs-links:
+    name: Docs links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check relative links
+        run: bash scripts/check-docs-links.sh
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Docs links" >> $GITHUB_STEP_SUMMARY
+          echo "- relative links in tracked .md files resolve" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
   # Job 1b.1: Build migrations image (PR only)
   # The migrations Dockerfile COPYs root-relative paths (migrations/*, certs/*),
   # so it must be built with context=., never context=migrations. Building it on
@@ -1137,6 +1158,7 @@ jobs:
       - changes
       - lint
       - format
+      - docs-links
       - migrations-build
       - migrations
       - audit
