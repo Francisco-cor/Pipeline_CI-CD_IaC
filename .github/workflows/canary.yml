@@ -9,9 +9,8 @@
 #
 # Requires the repository variable CANARY_URL (base URL, no trailing slash
 # needed; the job has no `environment:`, so environment-scoped variables are
-# not visible). When it is empty the job fails on purpose: a canary
-# that silently skips is worse than no canary, because the schedule stays green
-# while nothing is being checked. Set the variable before enabling the probe.
+# not visible). Until the variable exists the job is skipped: a 48-times-a-day
+# red run would be pure noise. Set CANARY_URL to enable the probe.
 
 name: canary
 
@@ -33,6 +32,7 @@ concurrency:
 jobs:
   canary:
     name: External canary
+    if: vars.CANARY_URL != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -54,11 +54,15 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Only unauthenticated endpoints: API reads require a Bearer token
+          # when AUTH_ENABLED=true (staging/prod). Health paths stay public so
+          # the probe measures availability without shipping a credential.
           base="${CANARY_URL%/}"
           paths=(
             "/health"
-            "/api/v1/productos?limit=1"
-            "/api/v1/ordenes?limit=1"
+            "/api/v1/productos/health"
+            "/api/v1/ordenes/health"
+            "/api/v1/stock/health"
           )
 
           echo "## Canary — ${base}" >> "$GITHUB_STEP_SUMMARY"

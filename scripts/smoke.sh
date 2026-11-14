@@ -6,11 +6,13 @@
 #   bash scripts/smoke.sh https://staging.example.com
 #   SMOKE_RETRIES=10 SMOKE_DELAY_SECONDS=5 bash scripts/smoke.sh "$PROD_URL"
 #
-# Checks nginx, productos/ordenes/stock health + one read per service, and the
-# BFF only when the environment already has an order to read. It never writes
-# data, so it is safe to run against staging and prod after every deploy.
+# Checks nginx and productos/ordenes/stock health (always public). With a
+# SMOKE_TOKEN it also verifies one protected read per service and the BFF;
+# without it those checks are skipped because staging/prod enforce JWT auth.
+# It never writes data, so it is safe to run against staging and prod.
 #
 # Env:
+#   SMOKE_TOKEN           optional Bearer token for protected read checks
 #   SMOKE_RETRIES         attempts for the initial /health wait (default 6)
 #   SMOKE_DELAY_SECONDS   seconds between attempts (default 5)
 #   SMOKE_TIMEOUT_SECONDS per-request curl timeout (default 10)
@@ -21,6 +23,7 @@
 set -euo pipefail
 
 BASE_URL="${1:-${SMOKE_BASE_URL:-}}"
+SMOKE_TOKEN="${SMOKE_TOKEN:-}"
 RETRIES="${SMOKE_RETRIES:-6}"
 DELAY="${SMOKE_DELAY_SECONDS:-5}"
 TIMEOUT="${SMOKE_TIMEOUT_SECONDS:-10}"
@@ -48,8 +51,13 @@ warn() { echo "WARN: $1"; }
 http_code() {
   local path="$1"
   local code
-  code="$(curl -sS --max-time "${TIMEOUT}" -o "${BODY}" -w '%{http_code}' "${BASE_URL}${path}" 2>/dev/null)" ||
-    code="000"
+  if [ -n "${SMOKE_TOKEN}" ]; then
+    code="$(curl -sS --max-time "${TIMEOUT}" -H "Authorization: Bearer ${SMOKE_TOKEN}" \
+      -o "${BODY}" -w '%{http_code}' "${BASE_URL}${path}" 2>/dev/null)" || code="000"
+  else
+    code="$(curl -sS --max-time "${TIMEOUT}" -o "${BODY}" -w '%{http_code}' \
+      "${BASE_URL}${path}" 2>/dev/null)" || code="000"
+  fi
   echo "${code:-000}"
 }
 
@@ -102,22 +110,26 @@ check "/api/v1/productos/health"
 check "/api/v1/ordenes/health"
 check "/api/v1/stock/health"
 
-check_json "/api/v1/productos?limit=1"
-check_json "/api/v1/ordenes?limit=1"
-check_json "/api/v1/stock?limit=1"
+if [ -n "${SMOKE_TOKEN}" ]; then
+  check_json "/api/v1/productos?limit=1"
+  check_json "/api/v1/ordenes?limit=1"
+  check_json "/api/v1/stock?limit=1"
 
-# BFF aggregation needs an existing order id. Empty environments skip it
-# instead of failing the promotion on absent seed data.
-if command -v jq >/dev/null 2>&1; then
-  http_code "/api/v1/ordenes?limit=1" >/dev/null || true
-  ORDEN_ID="$(jq -r '.data[0].id // empty' "${BODY}" 2>/dev/null || true)"
-  if [ -n "${ORDEN_ID}" ]; then
-    check_json "/api/v1/bff/ordenes/${ORDEN_ID}?include=producto"
+  # BFF aggregation needs an existing order id. Empty environments skip it
+  # instead of failing the promotion on absent seed data.
+  if command -v jq >/dev/null 2>&1; then
+    http_code "/api/v1/ordenes?limit=1" >/dev/null || true
+    ORDEN_ID="$(jq -r '.data[0].id // empty' "${BODY}" 2>/dev/null || true)"
+    if [ -n "${ORDEN_ID}" ]; then
+      check_json "/api/v1/bff/ordenes/${ORDEN_ID}?include=producto"
+    else
+      warn "no orders available — BFF aggregation check skipped"
+    fi
   else
-    warn "no orders available — BFF aggregation check skipped"
+    warn "jq not installed — BFF aggregation check skipped"
   fi
 else
-  warn "jq not installed — BFF aggregation check skipped"
+  warn "SMOKE_TOKEN not set — protected read/BFF checks skipped (health verified)"
 fi
 
 echo "=== smoke OK — ${BASE_URL} ==="

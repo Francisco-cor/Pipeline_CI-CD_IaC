@@ -41,6 +41,7 @@
 #   ENABLE_PROMOTION = 'true'   (otherwise staging/prod are skipped)
 #   STAGING_URL, PROD_URL       (base URLs for the post-deploy smoke)
 #   DEV_URL                     (optional, deployment history link for dev)
+#   SMOKE_TOKEN (secret)        (optional; enables protected read checks in smoke)
 # See docs/runbooks/deploy.md.
 # =============================================================================
 
@@ -1036,6 +1037,9 @@ jobs:
       - name: Smoke staging
         env:
           STAGING_URL: ${{ vars.STAGING_URL }}
+          # Optional: lets the smoke verify protected reads. Without it the
+          # script only checks public health endpoints.
+          SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
         run: |
           chmod +x scripts/smoke.sh
           bash scripts/smoke.sh "${STAGING_URL}"
@@ -1105,6 +1109,7 @@ jobs:
       - name: Smoke prod
         env:
           PROD_URL: ${{ vars.PROD_URL }}
+          SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
         run: |
           chmod +x scripts/smoke.sh
           bash scripts/smoke.sh "${PROD_URL}"

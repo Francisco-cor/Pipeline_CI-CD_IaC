@@ -74,6 +74,7 @@ o por environment:
 | `PROD_URL`         | sí          | base URL del smoke de prod (`https://app.example.com`)        |
 | `DEV_URL`          | no          | link mostrado en el historial de deployments de dev           |
 | `CANARY_URL`       | no          | base URL del workflow externo `canary.yml` (ver más abajo)    |
+| `SMOKE_TOKEN`      | no (secret) | Bearer token para los reads protegidos del smoke              |
 
 `deploy-prod` no puede saltar staging: si `deploy-staging` falla, se cancela o
 queda rechazado por reviewers, prod no arranca.
@@ -85,9 +86,10 @@ se ejecuta al final de staging y prod:
 
 - `/health` (nginx) con reintentos (por defecto 6 intentos cada 5 s)
 - `/api/v1/productos/health`, `/api/v1/ordenes/health`, `/api/v1/stock/health`
-- `GET /api/v1/{productos,ordenes,stock}?limit=1` con body JSON válido
-- `GET /api/v1/bff/ordenes/<id>?include=producto` **solo si** ya existe una
-  orden; con entorno vacío se saltea con warning (no bloquea la promoción)
+- Con `SMOKE_TOKEN` (secret opcional): `GET /api/v1/{productos,ordenes,stock}?limit=1`
+  con body JSON válido y `GET /api/v1/bff/ordenes/<id>?include=producto` si ya
+  existe una orden. Sin token esos reads se saltean con warning porque staging
+  y prod tienen `AUTH_ENABLED=true` y devuelven 401.
 
 Variables: `SMOKE_RETRIES`, `SMOKE_DELAY_SECONDS`, `SMOKE_TIMEOUT_SECONDS`.
 Cualquier timeout, non-2xx o JSON inválido hace fallar el job y bloquea prod.
@@ -97,7 +99,9 @@ bash scripts/smoke.sh https://staging.example.com
 SMOKE_RETRIES=10 bash scripts/smoke.sh "$PROD_URL"
 ```
 
-El chequeo externo periódico vive en `.github/workflows/canary.yml`: cada 30
+El canary usa solo endpoints públicos de health (los reads requieren JWT) y se
+saltea mientras `CANARY_URL` no esté configurada. El chequeo externo periódico
+vive en `.github/workflows/canary.yml`: cada 30
 minutos hace `curl` a `vars.CANARY_URL` (`/health` + lecturas) y falla si
 `CANARY_URL` está vacía. Es barato y no reemplaza CloudWatch Synthetics.
 
