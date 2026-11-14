@@ -5,6 +5,10 @@
 // are accepted, and only same-origin/same-host or explicitly allowlisted
 // origins are persisted. This prevents javascript:/data: injection and stops a
 // malicious link from writing an arbitrary API origin into localStorage.
+//
+// Accessibility: every form control has a label/for, tables expose column
+// scopes, the toast is an aria-live region, and polling pauses while the tab is
+// hidden (visibilitychange) to save requests and battery.
 
 const DEFAULT_API_BASE = 'http://localhost:80';
 const STATIC_API_ALLOWLIST = [
@@ -61,11 +65,17 @@ const escapeHtml = value =>
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+
+let toastTimer = null;
 const toast = (msg, isErr = true) => {
   const t = $('#toast');
   t.textContent = msg;
-  t.className = 'toast show' + (isErr ? '' : '');
-  setTimeout(() => (t.className = 'toast'), 4000);
+  t.className = 'toast show ' + (isErr ? 'err' : 'ok');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    t.className = 'toast';
+    t.textContent = '';
+  }, 4000);
 };
 
 async function api(path, opts = {}) {
@@ -85,27 +95,42 @@ async function api(path, opts = {}) {
   return { ok: res.ok, status: res.status, body, headers, text };
 }
 
+let healthInFlight = false;
+
 function renderHealth() {
+  if (healthInFlight) return;
+  healthInFlight = true;
+  const health = $('#health');
+  health.setAttribute('aria-busy', 'true');
+
   Promise.all([
     api('/health'),
     api('/api/v1/productos/health'),
     api('/api/v1/ordenes/health'),
     api('/api/v1/stock/health'),
     api('/api/v1/productos/health/details').catch(() => ({ ok: false })),
-  ]).then(([ng, p, o, s, d]) => {
-    const safeApiBase = escapeHtml(API_BASE);
-    const pool = d.body?.pool ? escapeHtml(JSON.stringify(d.body.pool)) : '—';
-    $('#health').innerHTML = `
+  ])
+    .then(([ng, p, o, s, d]) => {
+      const safeApiBase = escapeHtml(API_BASE);
+      const pool = d.body?.pool ? escapeHtml(JSON.stringify(d.body.pool)) : '—';
+      health.innerHTML = `
       <div class="kv">
         <b>nginx</b><span class="${ng.ok ? 'ok' : 'err'}">${ng.status} ${ng.ok ? 'ok' : 'fail'}</span>
-        <b>productos</b><span class="${p.ok ? 'ok' : 'err'}">${p.status} ${p.body?.status || ''}</span>
-        <b>ordenes</b><span class="${o.ok ? 'ok' : 'err'}">${o.status} ${o.body?.status || ''}</span>
-        <b>stock</b><span class="${s.ok ? 'ok' : 'err'}">${s.status} ${s.body?.status || ''}</span>
+        <b>productos</b><span class="${p.ok ? 'ok' : 'err'}">${p.status} ${escapeHtml(p.body?.status || '')}</span>
+        <b>ordenes</b><span class="${o.ok ? 'ok' : 'err'}">${o.status} ${escapeHtml(o.body?.status || '')}</span>
+        <b>stock</b><span class="${s.ok ? 'ok' : 'err'}">${s.status} ${escapeHtml(s.body?.status || '')}</span>
         <b>details pool</b><span class="muted">${pool} uptime ${escapeHtml(d.body?.uptime_s || '—')}s</span>
       </div>
-      <div class="muted" style="margin-top:8px">X-Request-Id: ${escapeHtml(ng.headers['x-request-id'] || '—')} • <a href="${safeApiBase}/metrics" target="_blank" rel="noopener noreferrer">/metrics</a> • <a href="${safeApiBase}/api/v1/productos?limit=1" target="_blank" rel="noopener noreferrer">api sample</a></div>
+      <div class="muted mt-8">X-Request-Id: ${escapeHtml(ng.headers['x-request-id'] || '—')} • <a href="${safeApiBase}/metrics" target="_blank" rel="noopener noreferrer">/metrics</a> • <a href="${safeApiBase}/api/v1/productos?limit=1" target="_blank" rel="noopener noreferrer">api sample</a></div>
     `;
-  });
+    })
+    .catch(() => {
+      health.textContent = 'sin conexión con la API — revisá API_BASE';
+    })
+    .finally(() => {
+      health.setAttribute('aria-busy', 'false');
+      healthInFlight = false;
+    });
 }
 
 async function loadProductos(page = 1) {
@@ -117,16 +142,17 @@ async function loadProductos(page = 1) {
   $('#prodCache').textContent = `X-Cache: ${hit} • X-Total-Count: ${total}`;
   const rows = r.body.data || [];
   $('#prodTable').innerHTML =
-    `<tr><th>id</th><th>nombre</th><th>precio</th><th>stock</th></tr>` +
-      rows
-        .map(
-          p => `
+    `<caption class="sr-only">Productos</caption>` +
+    `<tr><th scope="col">id</th><th scope="col">nombre</th><th scope="col">precio</th><th scope="col">stock</th></tr>` +
+    (rows
+      .map(
+        p => `
     <tr><td>${escapeHtml(p.id)}</td><td>${escapeHtml(p.nombre)}</td><td>${escapeHtml(p.precio)}</td><td>${escapeHtml(p.stock)}</td></tr>
   `
-        )
-        .join('') || '<tr><td colspan=4 class="muted">vacío</td></tr>';
+      )
+      .join('') || '<tr><td colspan="4" class="muted">vacío</td></tr>');
   // fill select for orden/stock
-  const sel = $('#ordenProdId');
+  const sel = $('#orden-prod');
   if (sel)
     sel.innerHTML = rows
       .map(
@@ -134,7 +160,7 @@ async function loadProductos(page = 1) {
           `<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)} — ${escapeHtml(p.nombre.slice(0, 18))} (stock ${escapeHtml(p.stock)})</option>`
       )
       .join('');
-  const sel2 = $('#stockProdId');
+  const sel2 = $('#stock-prod');
   if (sel2) sel2.innerHTML = sel.innerHTML;
 }
 
@@ -158,14 +184,15 @@ async function loadOrdenes() {
   if (!r.ok) return toast(`ordenes ${r.status}`);
   const rows = r.body.data || [];
   $('#ordenTable').innerHTML =
-    `<tr><th>id</th><th>prod</th><th>cant</th><th>total</th><th>BFF</th></tr>` +
-      rows
-        .map(
-          o => `
-    <tr><td>${escapeHtml(o.id)}</td><td>${escapeHtml(o.producto_id)}</td><td>${escapeHtml(o.cantidad)}</td><td>${escapeHtml(o.total)}</td><td><button type="button" class="bff-btn" data-orden-id="${Number(o.id)}">include</button></td></tr>
+    `<caption class="sr-only">Ordenes</caption>` +
+    `<tr><th scope="col">id</th><th scope="col">prod</th><th scope="col">cant</th><th scope="col">total</th><th scope="col">BFF</th></tr>` +
+    (rows
+      .map(
+        o => `
+    <tr><td>${escapeHtml(o.id)}</td><td>${escapeHtml(o.producto_id)}</td><td>${escapeHtml(o.cantidad)}</td><td>${escapeHtml(o.total)}</td><td><button type="button" class="bff-btn" data-orden-id="${Number(o.id)}" aria-label="Agregar producto a la orden ${Number(o.id)}">include</button></td></tr>
   `
-        )
-        .join('') || '<tr><td colspan=5 class="muted">vacío</td></tr>';
+      )
+      .join('') || '<tr><td colspan="5" class="muted">vacío</td></tr>');
 }
 
 async function createOrden(e) {
@@ -198,14 +225,15 @@ async function loadStock() {
   if (!r.ok) return toast(`stock ${r.status}`);
   const rows = r.body.data || [];
   $('#stockTable').innerHTML =
-    `<tr><th>id</th><th>prod</th><th>cant</th><th>tipo</th></tr>` +
-      rows
-        .map(
-          s => `
+    `<caption class="sr-only">Movimientos de stock</caption>` +
+    `<tr><th scope="col">id</th><th scope="col">prod</th><th scope="col">cant</th><th scope="col">tipo</th></tr>` +
+    (rows
+      .map(
+        s => `
     <tr><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.producto_id)}</td><td>${escapeHtml(s.cantidad)}</td><td>${escapeHtml(s.tipo)}</td></tr>
   `
-        )
-        .join('') || '<tr><td colspan=4 class="muted">vacío</td></tr>';
+      )
+      .join('') || '<tr><td colspan="4" class="muted">vacío</td></tr>');
 }
 
 async function createStock(e) {
@@ -224,37 +252,83 @@ async function createStock(e) {
   } else toast(`stock ${r.status} ${r.text.slice(0, 200)}`);
 }
 
+let healthTimer = null;
+
+function startHealthPolling() {
+  stopHealthPolling();
+  if (!document.hidden) healthTimer = setInterval(renderHealth, 10000);
+}
+
+function stopHealthPolling() {
+  if (healthTimer) {
+    clearInterval(healthTimer);
+    healthTimer = null;
+  }
+}
+
 function bind() {
   $('#apiBase').textContent = API_BASE;
   $('#apiInput').value = API_BASE;
-  $('#apiSave').onclick = () => {
+
+  $('#apiSave').addEventListener('click', () => {
     const candidate = $('#apiInput').value;
     const normalized = normalizeApiBase(candidate);
     if (!normalized) {
       toast('API_BASE rejected: use an http(s) same-origin or allowlisted URL');
       return;
     }
-    localStorage.setItem('api_base', normalized);
+    try {
+      localStorage.setItem('api_base', normalized);
+    } catch (_err) {
+      toast('No se pudo guardar API_BASE (localStorage bloqueado)');
+      return;
+    }
     location.href = '?api=' + encodeURIComponent(normalized);
-  };
-  $('#btnRefresh').onclick = () => {
+  });
+
+  $('#btnRefresh').addEventListener('click', () => {
     renderHealth();
     loadProductos();
     loadOrdenes();
     loadStock();
-  };
+  });
+
   $('#ordenTable').addEventListener('click', event => {
     const button = event.target.closest('.bff-btn');
     if (button) bff(Number(button.dataset.ordenId));
   });
+
   $('#detailsLink').addEventListener('click', event => {
-    event.preventDefault();
-    api('/api/v1/productos/health/details').then(r => alert(JSON.stringify(r.body, null, 2)));
+    const trigger = event.currentTarget;
+    const box = $('#detailsBox');
+    const expanded = trigger.getAttribute('aria-expanded') === 'true';
+    if (expanded) {
+      trigger.setAttribute('aria-expanded', 'false');
+      box.hidden = true;
+      return;
+    }
+    api('/api/v1/productos/health/details')
+      .then(r => {
+        box.textContent = JSON.stringify(r.body, null, 2);
+        box.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+      })
+      .catch(() => toast('health/details no disponible'));
   });
-  $('#prodForm').onsubmit = createProducto;
-  $('#ordenForm').onsubmit = createOrden;
-  $('#stockForm').onsubmit = createStock;
+
+  $('#prodForm').addEventListener('submit', createProducto);
+  $('#ordenForm').addEventListener('submit', createOrden);
+  $('#stockForm').addEventListener('submit', createStock);
 }
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopHealthPolling();
+    return;
+  }
+  renderHealth();
+  startHealthPolling();
+});
 
 document.addEventListener('DOMContentLoaded', () => {
   bind();
@@ -262,9 +336,5 @@ document.addEventListener('DOMContentLoaded', () => {
   loadProductos();
   loadOrdenes();
   loadStock();
-  setInterval(() => {
-    renderHealth();
-  }, 10000);
+  startHealthPolling();
 });
-
-window.bff = bff;

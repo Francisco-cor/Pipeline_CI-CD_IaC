@@ -62,7 +62,10 @@ header small {
 }
 .controls input,
 .controls select,
-.controls button {
+.controls button,
+.row input,
+.row select,
+.row button {
   background: var(--card);
   border: 1px solid var(--border);
   color: #e6e8f0;
@@ -70,12 +73,63 @@ header small {
   border-radius: 8px;
   font-size: 13px;
 }
-.controls button {
+.controls button,
+.row button {
   cursor: pointer;
   background: #1e293b;
 }
-.controls button:hover {
+.controls button:hover,
+.row button:hover {
   border-color: var(--accent);
+}
+.api-input {
+  width: 210px;
+}
+.grow {
+  flex: 1;
+}
+.w-90 {
+  width: 90px;
+}
+.w-70 {
+  width: 70px;
+}
+.mt-8 {
+  margin-top: 8px;
+}
+.page-meta {
+  max-width: 1100px;
+  margin: 10px auto;
+  padding: 0 16px;
+}
+.linklike {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.linklike:hover {
+  text-decoration: none;
+}
+.pre-box {
+  max-height: 320px;
+}
+.full {
+  grid-column: 1 / -1;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 main {
   max-width: 1100px;
@@ -158,7 +212,12 @@ pre {
 }
 .toast.show {
   display: block;
+}
+.toast.err {
   border-color: var(--err);
+}
+.toast.ok {
+  border-color: var(--ok);
 }
 .kv {
   display: grid;
@@ -176,4 +235,21 @@ a {
 }
 a:hover {
   text-decoration: underline;
+}
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
