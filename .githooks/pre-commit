@@ -17,7 +17,10 @@ set -uo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root" || exit 1
 
-mapfile -d '' -t staged < <(git diff --cached --name-only --diff-filter=ACMR -z)
+staged=()
+while IFS= read -r -d '' file; do
+  staged+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)
 
 if [ "${#staged[@]}" -eq 0 ]; then
   exit 0
