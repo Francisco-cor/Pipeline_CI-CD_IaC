@@ -26,6 +26,16 @@ output "rds_endpoint" {
   value       = module.database.rds_endpoint
 }
 
+output "rds_instance_identifier" {
+  description = "RDS DBInstanceIdentifier. Used by restore drills and runbooks (docs/runbooks/restore.md) to target the instance without guessing the name."
+  value       = module.database.rds_identifier
+}
+
+output "rds_instance_arn" {
+  description = "ARN of the RDS instance, used by the restore drill to tag and verify the scratch copy."
+  value       = module.database.rds_arn
+}
+
 output "ecs_cluster_name" {
   description = "Name of the ECS cluster. Used by CI/CD to trigger rolling deployments (aws ecs update-service)."
   value       = module.compute.ecs_cluster_name
@@ -49,6 +59,11 @@ output "log_group_name" {
 output "alb_dns_name" {
   description = "Fase 10.4 — ALB DNS when enable_alb=true"
   value       = module.compute.alb_dns_name
+}
+
+output "alb_arn_suffix" {
+  description = "ALB ARN suffix used as the LoadBalancer CloudWatch dimension. Empty when enable_alb=false."
+  value       = module.compute.alb_arn_suffix
 }
 
 output "waf_web_acl_arn" {

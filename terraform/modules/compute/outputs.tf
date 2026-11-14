@@ -46,6 +46,21 @@ output "alb_target_group_arn" {
   value = var.enable_alb ? try(aws_lb_target_group.app[0].arn, "") : ""
 }
 
+output "alb_arn_suffix" {
+  description = "ALB ARN suffix (app/<name>/<id>) used as the LoadBalancer CloudWatch dimension. Empty when enable_alb=false."
+  value       = var.enable_alb ? try(aws_lb.main[0].arn_suffix, "") : ""
+}
+
+output "alb_target_group_arn_suffix" {
+  description = "Target group ARN suffix (targetgroup/<name>/<id>) used as the TargetGroup CloudWatch dimension. Empty when enable_alb=false."
+  value       = var.enable_alb ? try(aws_lb_target_group.app[0].arn_suffix, "") : ""
+}
+
+output "ecs_service_arn" {
+  description = "ARN of the ECS service. Used to scope dashboards and operational tooling to the exact service."
+  value       = aws_ecs_service.app.id
+}
+
 output "autoscaling_enabled" {
   value = var.enable_autoscaling
 }

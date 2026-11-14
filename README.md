@@ -161,12 +161,15 @@ The system comes with industrial seed data (BOM). Below are examples of the JSON
 
 ## Monitoring & Observability (Fase 9)
 
-Logs, métricas, traces y health sin `ssh` — ver `docs/observability.md:1` y `terraform/dashboard.tf:10`:
+Logs, métricas, traces y health sin `ssh` — ver `docs/observability.md:1` y `terraform/dashboard.tf:1`:
 
 - **Logs:** JSON `requestId` (`logger.js:14` `AsyncLocalStorage` + `middleware.js:12` `enterWith`) → CloudWatch `/ecs/erp-pipeline-{env}` `retention 7d dev / 90d prod` (`compute/main.tf:110`). Queries Insights `filter level=error | stats by service` + `filter requestId=xxx`.
 - **Métricas:** `prom-client` `http_request_duration_ms` histogram + `http_requests_total` (`metrics.js:20`) + EMF `HttpLatency` → CloudWatch Metrics `erp-pipeline/{env}` + `GET /metrics` (`services/productos/src/index.js:14` + `nginx.conf:45`).
-- **Dashboard:** 6 widgets CPU/Mem/Error/Latency p95/5xx/DB conns + log table (`dashboard.tf:10`) `erp-pipeline-{env}-overview` `$3/mes`.
-- **Alarmas:** `ServiceErrorCount>10/5m` + `p95>500ms` + `5xx>10/5m` + `DBConnections>80` → SNS `alert_email` (`observability.tf:49`).
+- **SLOs:** disponibilidad 99.9%, 5xx <1%, p95 <300ms con error budget y burn rate documentados en `docs/observability.md#slis-slos-y-error-budget`.
+- **Dashboard:** 8 widgets CPU/Mem/Error/Latency p95/5xx/DB conns/ECS tasks/ALB health + log table (`dashboard.tf:1`) `erp-pipeline-{env}-overview` `$3/mes`.
+- **Alarmas:** ECS running<desired, ALB unhealthy/5xx/latency, RDS storage/CPU/connections, WAF blocked, SQS/DLQ → SNS `alert_email` + `alert_webhook_url` (`observability.tf:1`). Severidades y escalado en `docs/runbooks/alert.md:1`.
+- **FinOps:** tags `Owner`/`CostCenter` + budget mensual 50/80/100% (`terraform/budgets.tf:1`).
+- **DR:** RTO ≤2h / RPO ≤15 min y drill reproducible (`docs/runbooks/restore.md:1`, `scripts/restore-drill.sh:1`).
 - **Tracing:** OTel `NodeSDK` + `auto-instrumentations` + `OTLPTraceExporter` `OTEL_ENABLED=true` → `http://localhost:4318/v1/traces` (`tracing.js:20`).
 - **Health:** `/health/live` (sin DB, liveness ECS) + `/health/ready` (DB + draining, 503 en shutdown) + `/health/details` `pool {totalCount,idleCount,waitingCount}` + `uptime` + `memory` (`packages/shared/src/health.js`).
 

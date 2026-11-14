@@ -72,7 +72,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           view = "timeSeries"
         }
       },
-      # Widget 4: RDS DB Connections + CPU
+      # Widget 4: RDS DB Connections + CPU + free storage
       {
         type   = "metric"
         x      = 12
@@ -80,12 +80,13 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 12
         height = 6
         properties = {
-          title  = "RDS — DBConnections + CPU (t3.micro)"
+          title  = "RDS — DBConnections, CPU and free storage (t3.micro)"
           region = var.aws_region
           period = 300
           metrics = [
             ["AWS/RDS", "DatabaseConnections", "DBInstanceIdentifier", "${var.project_name}-${var.environment}-postgres", { label = "DB conns", stat = "Maximum" }],
             ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "${var.project_name}-${var.environment}-postgres", { label = "RDS CPU %" }],
+            ["AWS/RDS", "FreeStorageSpace", "DBInstanceIdentifier", "${var.project_name}-${var.environment}-postgres", { label = "Free GiB", stat = "Minimum", yAxis = "right", color = "#9467bd" }],
           ]
           view = "timeSeries"
         }
@@ -119,6 +120,47 @@ resource "aws_cloudwatch_dashboard" "main" {
             ["${var.project_name}/${var.environment}", "HttpLatency", { label = "p50", stat = "p50" }],
             ["${var.project_name}/${var.environment}", "HttpLatency", { label = "p95", stat = "p95" }],
             ["${var.project_name}/${var.environment}", "HttpLatency", { label = "p99", stat = "p99" }],
+          ]
+          view = "timeSeries"
+        }
+      },
+      # Widget 7: ECS running vs desired tasks (SLO availability signal)
+      {
+        type   = "metric"
+        x      = 0
+        y      = 24
+        width  = 12
+        height = 6
+        properties = {
+          title  = "ECS — Running vs Desired tasks"
+          region = var.aws_region
+          period = 60
+          stat   = "Average"
+          metrics = [
+            ["AWS/ECS", "RunningTaskCount", "ClusterName", module.compute.ecs_cluster_name, "ServiceName", module.compute.ecs_service_name, { label = "running", color = "#2ca02c" }],
+            ["AWS/ECS", "DesiredCount", "ClusterName", module.compute.ecs_cluster_name, "ServiceName", module.compute.ecs_service_name, { label = "desired", color = "#1f77b4" }],
+          ]
+          view = "timeSeries"
+        }
+      },
+      # Widget 8: ALB health + 5xx ratio. When the ALB is disabled the metrics
+      # reference an empty dimension and show no data; the title says so.
+      # Keeping a fixed widget shape avoids a conditionally sized JSON tuple.
+      {
+        type   = "metric"
+        x      = 12
+        y      = 24
+        width  = 12
+        height = 6
+        properties = {
+          title  = var.enable_alb ? "ALB — unhealthy hosts + 5xx ratio" : "ALB — disabled (enable_alb=false)"
+          region = var.aws_region
+          period = 60
+          metrics = [
+            ["AWS/ApplicationELB", "UnHealthyHostCount", "LoadBalancer", module.compute.alb_arn_suffix, "TargetGroup", module.compute.alb_target_group_arn_suffix, { label = "unhealthy hosts", stat = "Maximum", color = "#d62728" }],
+            ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", module.compute.alb_arn_suffix, "TargetGroup", module.compute.alb_target_group_arn_suffix, { id = "errors", label = "5xx", stat = "Sum", visible = false }],
+            ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", module.compute.alb_arn_suffix, "TargetGroup", module.compute.alb_target_group_arn_suffix, { id = "requests", label = "requests", stat = "Sum", visible = false }],
+            [{ expression = "IF(requests > 0, 100 * errors / requests, 0)", label = "5xx %", id = "ratio", yAxis = "right", color = "#ff7f0e" }],
           ]
           view = "timeSeries"
         }
