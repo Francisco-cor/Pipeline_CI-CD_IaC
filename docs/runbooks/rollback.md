@@ -1,4 +1,4 @@
-# Runbook — Rollback (Fase 7.7 + ADR-001)
+# Runbook — Rollback (Fase 7.7 + ADR-001 + 3B)
 
 > Cómo volver a una revisión estable cuando un deploy falla (manual o automático).
 
@@ -49,6 +49,31 @@ IP=$(aws ec2 describe-network-interfaces --network-interface-ids $(aws ecs descr
 curl -sf http://$IP/health && curl -sf http://$IP/api/v1/productos/health
 ```
 
+## Rollback de imagen ≠ rollback de esquema
+
+El rollback (automático o manual) solo cambia la **imagen** del task definition.
+Las migraciones son _forward-only_: `schema_migrations` ya registró el archivo y
+su checksum, y `deploy.sh` no ejecuta SQL.
+
+- Si la migración nueva ya corrió, el código viejo debe poder leer el esquema
+  nuevo. Por eso las migraciones se escriben **expand/contract**: primero agregar
+  columnas/tablas/índices compatibles y backfill; recién en un release posterior
+  cambiar los reads y, más tarde, borrar lo viejo. Nunca un `DROP`/rename
+  destructivo en el mismo deploy que cambia el código.
+- **No edites un `.sql` ya aplicado**: `migrations/run.js` compara checksums y
+  falla con `migration X changed after being applied`, bloqueando todos los
+  deploys siguientes. Para corregir, agregá una migración nueva.
+- Si la migración rompió datos o el esquema, el rollback de imagen no alcanza:
+  restaurá con `docs/runbooks/restore.md` (PITR/snapshot) y aceptá la ventana de
+  RPO documentada. El restore no se hace desde este runbook.
+- Diagnóstico:
+
+  ```sql
+  SELECT version, checksum, applied_at
+  FROM schema_migrations
+  ORDER BY version;
+  ```
+
 ## Rollback via Terraform (solo si el estado drift)
 
 ```bash
@@ -70,12 +95,12 @@ terraform plan -var-file=environments/dev.tfvars
 
 ## Cuándo hacer rollback manual vs esperar auto
 
-| Escenario                                                       | Acción                                                                                 |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Nueva imagen falla `health` inmediatamente                      | Espera 2-3m, `circuit_breaker` hará rollback solo — verifica con `deploy.sh`           |
-| Imagen pasa `health` pero bug funcional (500 en `/api/ordenes`) | Rollback manual a `sha` previo con `IMAGE_TAG=sha-prev bash scripts/deploy.sh`         |
-| Migración falló (`migrations` exit 1)                           | Task no arranca, `circuit breaker` dispara — corrige `sql/*.sql`, rebuild `migrations` |
-| Prod con `deletion_protection=true`                             | `terraform destroy` bloqueado — rollback solo via `update-service`, nunca destroy      |
+| Escenario                                                       | Acción                                                                                                                           |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Nueva imagen falla `health` inmediatamente                      | Espera 2-3m, `circuit_breaker` hará rollback solo — verifica con `deploy.sh`                                                     |
+| Imagen pasa `health` pero bug funcional (500 en `/api/ordenes`) | Rollback manual a `sha` previo con `IMAGE_TAG=sha-prev bash scripts/deploy.sh`                                                   |
+| Migración falló (`migrations` exit 1)                           | Task no arranca, `circuit breaker` dispara — corrige con una migración nueva, rebuild `migrations`; no edites el `.sql` aplicado |
+| Prod con `deletion_protection=true`                             | `terraform destroy` bloqueado — rollback solo via `update-service`, nunca destroy                                                |
 
 ## Post-mortem checklist
 
@@ -87,5 +112,7 @@ terraform plan -var-file=environments/dev.tfvars
 ## Referencias
 
 - `terraform/modules/compute/main.tf:345-400` ECS service `circuit_breaker` + `lifecycle ignore_changes`
-- `scripts/deploy.sh:130-180` verify + rollback detection
-- `docs/runbooks/deploy.md:1` deploy normal
+- `scripts/deploy.sh:1` verify + rollback detection
+- `docs/runbooks/deploy.md:1` deploy normal + promoción dev→staging→prod
+- `docs/runbooks/restore.md:1` restore/PITR cuando el problema es de datos o esquema
+- `migrations/run.js:1` checksums + idempotencia (expand/contract)
