@@ -942,7 +942,9 @@ jobs:
     timeout-minutes: 25
     environment:
       name: dev
-      url: ${{ vars.DEV_URL }}
+      # Fall back to the run URL: GitHub rejects an empty environment URL in
+      # some configurations, and the deployment history still needs a target.
+      url: ${{ vars.DEV_URL != '' && vars.DEV_URL || format('https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) }}
     permissions:
       id-token: write
       contents: read
@@ -996,7 +998,7 @@ jobs:
     timeout-minutes: 30
     environment:
       name: staging
-      url: ${{ vars.STAGING_URL }}
+      url: ${{ vars.STAGING_URL != '' && vars.STAGING_URL || format('https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) }}
     concurrency:
       # Never run two promotions into the same environment in parallel.
       group: deploy-staging
@@ -1069,7 +1071,7 @@ jobs:
     timeout-minutes: 30
     environment:
       name: prod
-      url: ${{ vars.PROD_URL }}
+      url: ${{ vars.PROD_URL != '' && vars.PROD_URL || format('https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) }}
     concurrency:
       group: deploy-prod
       cancel-in-progress: false
