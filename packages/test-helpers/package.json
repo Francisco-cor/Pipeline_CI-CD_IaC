@@ -8,9 +8,9 @@
     "lint": "eslint src/"
   },
   "devDependencies": {
-    "eslint": "^8.57.0",
+    "eslint": "^10.14.0",
     "eslint-plugin-import": "^2.29.1",
-    "@faker-js/faker": "^8.4.1"
+    "@faker-js/faker": "^10.6.0"
   },
   "engines": {
     "node": ">=24.15.0"
