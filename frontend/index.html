@@ -3,28 +3,31 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>ERP Pipeline — Dashboard (Fase 11)</title>
+    <title>ERP Pipeline — Dashboard</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header>
-      <h1>ERP Pipeline <small>— Fase 11 dashboard</small></h1>
+      <h1>ERP Pipeline <small>— dashboard</small></h1>
       <span class="badge">FinOps $0 → Prod toggle</span>
       <span class="badge">BFF include=producto</span>
       <span class="badge ok">cache X-Cache</span>
       <div class="controls">
+        <label class="sr-only" for="apiInput">API base URL</label>
         <input
           id="apiInput"
-          aria-label="API base URL"
+          class="api-input"
+          name="api"
           placeholder="http://localhost:80"
-          style="width: 210px"
+          autocomplete="off"
+          inputmode="url"
         />
-        <button id="apiSave" type="button">set API</button>
-        <button id="btnRefresh" type="button">refresh</button>
+        <button id="apiSave" type="button" aria-label="Guardar API base URL">set API</button>
+        <button id="btnRefresh" type="button" aria-label="Refrescar datos">refresh</button>
       </div>
     </header>
 
-    <div style="max-width: 1100px; margin: 10px auto; padding: 0 16px" class="muted">
+    <div class="page-meta muted">
       API_BASE: <code id="apiBase"></code> •
       <a
         href="https://github.com/Francisco-cor/Pipeline_CI-CD_IaC"
@@ -32,44 +35,60 @@
         rel="noopener noreferrer"
         >GitHub</a
       >
-      • <a href="/docs/openapi.yaml" target="_blank" rel="noopener noreferrer">OpenAPI</a> •
-      <a href="/docs/interview.md" target="_blank" rel="noopener noreferrer">interview</a>
+      •
+      <a
+        href="https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/blob/main/docs/openapi.yaml"
+        target="_blank"
+        rel="noopener noreferrer"
+        >OpenAPI</a
+      >
+      •
+      <a
+        href="https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/blob/main/docs/interview.md"
+        target="_blank"
+        rel="noopener noreferrer"
+        >interview</a
+      >
     </div>
 
     <main>
-      <section class="card">
-        <h2>Health — nginx → servicios</h2>
-        <div id="health" class="muted">cargando…</div>
+      <section class="card" aria-labelledby="healthTitle">
+        <h2 id="healthTitle">Health — nginx → servicios</h2>
+        <div id="health" class="muted" aria-live="polite" aria-busy="true">cargando…</div>
       </section>
 
-      <section class="card">
-        <h2>Productos — cache + paginación</h2>
-        <div id="prodCache" class="muted">X-Cache —</div>
-        <table id="prodTable"></table>
-        <form id="prodForm" class="row" style="margin-top: 8px">
+      <section class="card" aria-labelledby="prodTitle">
+        <h2 id="prodTitle">Productos — cache + paginación</h2>
+        <div id="prodCache" class="muted" aria-live="polite">X-Cache —</div>
+        <table id="prodTable" aria-label="Productos"></table>
+        <form id="prodForm" class="row mt-8">
+          <label class="sr-only" for="prod-nombre">Nombre del producto</label>
           <input
+            id="prod-nombre"
             name="nombre"
-            aria-label="nombre del producto"
+            class="grow"
             placeholder="nombre *"
             required
-            style="flex: 1"
+            autocomplete="off"
           />
+          <label class="sr-only" for="prod-precio">Precio del producto</label>
           <input
+            id="prod-precio"
             name="precio"
-            aria-label="precio del producto"
+            class="w-90"
             placeholder="precio 0"
             type="number"
             step="0.01"
             value="12.5"
-            style="width: 90px"
           />
+          <label class="sr-only" for="prod-stock">Stock inicial</label>
           <input
+            id="prod-stock"
             name="stock"
-            aria-label="stock inicial"
+            class="w-70"
             placeholder="stock"
             type="number"
             value="3"
-            style="width: 70px"
           />
           <button type="submit">+ crear</button>
         </form>
@@ -79,32 +98,30 @@
         </div>
       </section>
 
-      <section class="card">
-        <h2>Ordenes — FK + BFF aggregation</h2>
-        <table id="ordenTable"></table>
-        <form id="ordenForm" class="row" style="margin-top: 8px">
-          <select
-            id="ordenProdId"
-            name="producto_id"
-            aria-label="producto de la orden"
-            style="flex: 1"
-          ></select>
+      <section class="card" aria-labelledby="ordenTitle">
+        <h2 id="ordenTitle">Ordenes — FK + BFF aggregation</h2>
+        <table id="ordenTable" aria-label="Ordenes"></table>
+        <form id="ordenForm" class="row mt-8">
+          <label class="sr-only" for="orden-prod">Producto de la orden</label>
+          <select id="orden-prod" name="producto_id" class="grow"></select>
+          <label class="sr-only" for="orden-cantidad">Cantidad de la orden</label>
           <input
+            id="orden-cantidad"
             name="cantidad"
-            aria-label="cantidad de la orden"
+            class="w-70"
             placeholder="cant"
             type="number"
             value="2"
-            style="width: 70px"
           />
+          <label class="sr-only" for="orden-total">Total informativo de la orden</label>
           <input
+            id="orden-total"
             name="total"
-            aria-label="total informativo de la orden"
+            class="w-90"
             placeholder="total"
             type="number"
             step="0.01"
             value="25"
-            style="width: 90px"
           />
           <button type="submit">+ orden</button>
         </form>
@@ -112,30 +129,28 @@
           POST /api/v1/ordenes verifica `PRODUCTOS_URL` HTTP + circuit breaker fallback DB (Fase
           10.1). 404 si producto inexistente.
         </div>
-        <pre id="bffBox" class="muted" style="margin-top: 8px">
+        <pre id="bffBox" class="muted mt-8">
 BFF: click “include” en una orden → GET /api/v1/ordenes/:id?include=producto
 + GET /api/v1/bff/ordenes/:id (gateway incluido en el stack)</pre>
       </section>
 
-      <section class="card">
-        <h2>Stock — TX + invariant</h2>
-        <table id="stockTable"></table>
-        <form id="stockForm" class="row" style="margin-top: 8px">
-          <select
-            id="stockProdId"
-            name="producto_id"
-            aria-label="producto del movimiento"
-            style="flex: 1"
-          ></select>
+      <section class="card" aria-labelledby="stockTitle">
+        <h2 id="stockTitle">Stock — TX + invariant</h2>
+        <table id="stockTable" aria-label="Movimientos de stock"></table>
+        <form id="stockForm" class="row mt-8">
+          <label class="sr-only" for="stock-prod">Producto del movimiento</label>
+          <select id="stock-prod" name="producto_id" class="grow"></select>
+          <label class="sr-only" for="stock-cantidad">Cantidad del movimiento</label>
           <input
+            id="stock-cantidad"
             name="cantidad"
-            aria-label="cantidad del movimiento"
+            class="w-70"
             placeholder="cant"
             type="number"
             value="5"
-            style="width: 70px"
           />
-          <select name="tipo" aria-label="tipo de movimiento">
+          <label class="sr-only" for="stock-tipo">Tipo de movimiento</label>
+          <select id="stock-tipo" name="tipo">
             <option value="entrada">entrada</option>
             <option value="salida">salida</option>
           </select>
@@ -147,14 +162,22 @@ BFF: click “include” en una orden → GET /api/v1/ordenes/:id?include=produc
         </div>
       </section>
 
-      <section class="card" style="grid-column: 1 / -1">
-        <h2>Observabilidad & Scale — links</h2>
+      <section class="card full" aria-labelledby="obsTitle">
+        <h2 id="obsTitle">Observabilidad &amp; Scale — links</h2>
         <div class="kv">
           <b>health/details</b
           ><span
             ><code>GET /health/details</code> pool {total,idle,waiting} + <code>uptime_s</code> +
             <code>memory</code> (Fase 9.7) •
-            <a id="detailsLink" href="#" rel="noopener noreferrer">ver</a></span
+            <button
+              type="button"
+              id="detailsLink"
+              class="linklike"
+              aria-expanded="false"
+              aria-controls="detailsBox"
+            >
+              ver
+            </button></span
           >
           <b>metrics</b
           ><span
@@ -188,6 +211,7 @@ BFF: click “include” en una orden → GET /api/v1/ordenes/:id?include=produc
             10.7)</span
           >
         </div>
+        <pre id="detailsBox" class="pre-box mt-8" aria-live="polite" hidden></pre>
       </section>
     </main>
 

@@ -4,13 +4,26 @@
 
 ## Stack (resumen)
 
-- **Runtime:** Node 24 + Express 5 + `pg` 8, PostgreSQL 15 en RDS `db.t3.micro`.
+- **Runtime:** Node 24.15+ + Express 5 + `pg` 8, PostgreSQL 15 en RDS `db.t3.micro`.
 - **Infra:** AWS ECS Fargate (task 0.5 vCPU/1GB), ECR, RDS, SSM Parameter Store, CloudWatch, SNS, ElastiCache/SQS opcionales (Fase 10).
 - **IaC:** Terraform 1.9+ modular (`terraform/modules/*`), backend S3+DynamoDB per env (`terraform/backend.tf:1-20` `encrypt=true` + `environments/backend-*.hcl:1` + `environments/*.tfvars:1`), `terraform/.tflint.hcl:1` + `checkov`, toggles `enable_nat_gateway/service_discovery/alb/autoscaling/redis/sqs` (Fase 7+10).
 - **CI/CD:** GitHub Actions OIDC (`terraform/bootstrap/cicd.tf:17-65`, `ADR-002`), `concurrency` + `paths-filter` + `lint --cache` + `gitleaks/trivy` + `tflint/checkov` + `buildx gha cache` + `coverage` (`pipeline.yml:18`, `release.yml:1`) — Fase 6 (<6m PR), `teardown.yml:15-60` prod guard (Fase 7.8), `semantic-release` (`package.json:12`, `.releaserc.json:1`) Fase 11.6, promoción dev→staging→prod + SBOM/provenance + canary (Fase 3B).
 - **Proxy:** NGINX sidecar (`nginx/nginx.conf:1-96`) en misma task ECS (awsvpc, `localhost`) — + ALB opcional Fase 10.4 (`compute/main.tf:320`) + BFF `gateway:3004` (`nginx.conf:102` Fase 11.1).
 - **Cache/Queue:** Redis `ioredis` + memory fallback (`cache.js:1`), SQS `@aws-sdk/client-sqs` (`queue.js:1`) — Fase 10.5/10.6.
 - **Frontend/BFF:** `frontend/{index.html,app.js,styles.css}` static dashboard `http://localhost:8080` + `services/gateway/src/index.js:1` `svc-gateway` `GET /bff/ordenes/:id` (`X-Request-Id`, circuit, BFF aggregation `ordenes.js:152` Fase 11) + OpenAPI 3.1 `docs/openapi.yaml:1` + `docs/api.md:1`.
+
+### Políticas y operación
+
+- **Seguridad:** [`SECURITY.md`](../SECURITY.md) (reporte privado, SLA),
+  [`docs/security/threat-model.md`](security/threat-model.md) (STRIDE + riesgo
+  residual), [`docs/adr/ADR-007-security-model.md`](adr/ADR-007-security-model.md)
+  (auth/RBAC/audit/diagnostics).
+- **Gobernanza:** [`docs/GOVERNANCE.md`](GOVERNANCE.md) (ruleset, `CI required`,
+  revisión, release, ownership) + [`.github/CODEOWNERS`](../.github/CODEOWNERS).
+- **Deploy/rollback/restore:** [`docs/runbooks/deploy.md`](runbooks/deploy.md),
+  [`rollback.md`](runbooks/rollback.md), [`restore.md`](runbooks/restore.md).
+- **Contribución:** [`CONTRIBUTING.md`](../CONTRIBUTING.md) (Node 24.15+,
+  `make setup`, conventional commits, `make verify-full`).
 
 ## Layout
 
@@ -94,6 +107,8 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 - **Changes:** `pipeline.yml` `dorny/paths-filter@v3` → `productos/ordenes/stock/gateway/nginx/migrations/any_service` + `code`/`e2e`; `audit/test/trivy-fs/terraform/e2e` se saltean si no cambió el código (Fase 6.7).
 - **Lint:** `pipeline.yml` un solo job root + `eslint --cache` sobre workspaces + `actions/cache .eslintcache` + summary (Fase 6.5).
 - **Format:** `pipeline.yml` `prettier --check` (Fase 6.5).
+- **Docs links:** `pipeline.yml` job `docs-links` ejecuta `scripts/check-docs-links.sh` (git + bash, sin DB/AWS/npm): falla si un `.md` tracked linkea un archivo relativo que no existe. Sumado a `ci-required` (Fase 4).
+- **Gobernanza:** `docs/GOVERNANCE.md` documenta el ruleset de `main`, el check `CI required`, revisión obligatoria, merge queue y release/tag; el artefacto de ejemplo es `.github/rulesets/main.json` (no se aplica desde CI).
 - **Sec:** `pipeline.yml:182-235` `gitleaks/gitleaks-action@v2` + `aquasecurity/trivy-action fs` SARIF → code scanning (Fase 6.3).
 - **Migrations runner:** `pipeline.yml` job `migrations` (PR, solo si `migrations/**` o `.dockerignore` cambian) levanta `postgres:15` y corre `node run.js` **dos veces**: la primera aplica y guarda checksums SHA-256, la segunda debe skipear todos los archivos y reportar éxito (Fase 3B). Valida el contrato de idempotencia que hace seguro reintentar la task de migraciones.
 - **Test:** `pipeline.yml` matrix `postgres:15` (solo si `code` cambió), `jest --coverage`, `upload-artifact coverage-*`, summary + `needs: [lint,format]` (Fase 6.6).
@@ -136,7 +151,7 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 
 ## Convenciones
 
-- **Node 24** (`.nvmrc:1`, `.tool-versions:1`), **LF** (`.editorconfig:1`), **Prettier** (`.prettierrc:1`), **ESLint** (`eslint:recommended` + `import/recommended` en `.eslintrc.js:8`).
+- **Node 24.15+** (`.nvmrc:1`, `.tool-versions:1`), **LF** (`.editorconfig:1`), **Prettier** (`.prettierrc:1`), **ESLint** (`eslint:recommended` + `import/recommended` en `.eslintrc.js:8`).
 - Commits `tipo(scope): msg`, PRs 1 scope, dependencias via `.github/dependabot.yml` (agrupadas, mensuales).
 
 ## Escalabilidad & Resiliencia (Fase 10)
@@ -154,8 +169,8 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 
 - **BFF:** `services/ordenes/src/routes/ordenes.js:152` `GET /:id?include=producto` (`_bff: "orden+producto aggregated"` + fallback DB) + `services/gateway/src/index.js:55` `GET /bff/ordenes/:id` dual `CircuitBreaker` agregación `orden` + `producto` + `nginx.conf:102` `location /api/v1/bff/ordenes` `proxy_pass gateway:3004` (local) / `127.0.0.1:3004` (ECS); gateway incluido en el stack base.
 - **Frontend:** `frontend/{index.html,app.js,styles.css,Dockerfile}` static dashboard (Fase 11.2) `http://localhost:8080` (`--profile frontend`) consume `GET /api/v1/...` + `X-Cache` + `BFF include` + `409` handling + `X-Request-Id` + `frontend/README.md:1`.
-- **Demo:** `docs/demo.md:1` loom + `docs/screenshots/demo.gif` + refresh `aws_console.png/cloudwatch.png/github_actions.png/json_*.png` + `docs/screenshots` tabla (Fase 11.3).
-- **Badges:** `README.md:3` coverage `>80%` + OpenAPI 3.1 + trivy + prettier + release + demo (`pipeline.yml` `coverage` Fase 4.7 + `trivy` Fase 6.3).
+- **Demo:** `docs/demo.md:1` guion de 2m (portfolio, sin video publicado) + capturas reales en `docs/screenshots/` (`aws_console.png/cloudwatch.png/github_actions.png/json_*.png`).
+- **Badges:** `README.md:3` coverage `>80%` + OpenAPI 3.1 + trivy + prettier + release (`pipeline.yml` `coverage` Fase 4.7 + `trivy` Fase 6.3).
 - **ADRs:** `docs/adr/ADR-005-monorepo-shared-kernel.md:1` (Fase 2) + `ADR-006-openapi-versioning.md:1` (Fase 3) + `ADR-README` index (Fase 11.5).
 - **Release:** `package.json` `release` `semantic-release` + `CHANGELOG.md` + `.releaserc.json` (`commit-analyzer/changelog/github/git`). `.github/workflows/release.yml` ya no corre en cada push: se gatilla por `workflow_run` de `CI/CD Pipeline` y solo publica tags `v*` si ese run fue un push exitoso a `main` (Fase 11.6).
 - **Interview:** `docs/interview.md:1` 17 Q&A rollback/FinOps/decoupling/cache/BFF/WAF/observabilidad (Fase 11.7) — 30m prep senior.
@@ -163,7 +178,7 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 
 ## Roadmap
 
-Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → production-grade. **Fases 1-11 completadas:** higiene (1) → compose+monorepo (2) → hardening API (3) → testing (4) → datos enterprise (5) → CI (6) → infra multi-env (7) → sec profunda (8) → observabilidad (9) → scale & resiliencia (10) → producto & portfolio polish (11) _shippable senior_.
+El roadmap vive en issues y ADRs. **Fases 1-11 completadas:** higiene (1) → compose+monorepo (2) → hardening API (3) → testing (4) → datos enterprise (5) → CI (6) → infra multi-env (7) → sec profunda (8) → observabilidad (9) → scale & resiliencia (10) → producto & portfolio polish (11) _shippable senior_. No hay archivo de plan gitignored: si un dato no está en `docs/`, no es verificable.
 
 ## Runbooks & Portfolio (Fase 7.9 + 8.6 + 9.8 + 10.8 + 11)
 
@@ -178,7 +193,7 @@ Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → produ
 - `docs/runbooks/restore.md:1` + `scripts/restore-drill.sh:1` — RTO/RPO, PITR/snapshot y drill de restore (Fase 3A)
 - `terraform/budgets.tf:1` — budget mensual por entorno + alertas 50/80/100% (Fase 3A)
 - `scripts/chaos.sh:1` + `scripts/k6/resilience.js:1` — resilience kill/cache/circuit 50 rps (Fase 10.7)
-- `docs/demo.md:1` — 2m demo loom + `frontend/index.html` `http://localhost:8080` + `GET /ordenes/:id?include=producto` BFF (Fase 11.3)
+- `docs/demo.md:1` — guion de 2m (portfolio, sin video publicado) + `frontend/index.html` `http://localhost:8080` + `GET /ordenes/:id?include=producto` BFF (Fase 11.3)
 - `docs/interview.md:1` — 17 Q&A rollback/FinOps/BFF/cache/WAF (Fase 11.7)
 - `docs/adr/ADR-005-monorepo-shared-kernel.md:1` + `ADR-006-openapi-versioning.md:1` — monorepo + OpenAPI (Fase 11.5)
 - `.releaserc.json` + `CHANGELOG.md` + `.github/workflows/release.yml` — semantic-release tags `v*` solo tras un `workflow_run` exitoso de `CI/CD Pipeline` en `main` (Fase 11.6)

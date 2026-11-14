@@ -1,7 +1,7 @@
 # ERP Pipeline — Cloud Native Microservices, CI/CD with IaC, Secrets Management
 
 ![CI/CD Pipeline](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/actions/workflows/pipeline.yml/badge.svg)
-![Node version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)
+![Node version](https://img.shields.io/badge/node-%3E%3D24.15.0-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Express.js](https://img.shields.io/badge/express-4.x-lightgrey?logo=express&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?logo=docker&logoColor=white)
@@ -12,11 +12,25 @@
 ![Trivy](https://img.shields.io/badge/trivy-scanned-blue?logo=aquasec)
 ![Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4)
 ![Release](https://img.shields.io/badge/release-semantic--release-e10079?logo=semantic-release)
-![Demo](https://img.shields.io/badge/demo-live-success?logo=loom)
 
 ## Project Overview
 
 This project is a microservices-based ERP for manufacturing, built with Node.js and deployed on AWS ECS Fargate. It focuses on a cost-efficient architecture (FinOps), automated deployments, and secure secrets management.
+
+**Documentación y políticas:**
+
+- Seguridad: [`SECURITY.md`](SECURITY.md) (reporte privado, SLA) y
+  [`docs/security/threat-model.md`](docs/security/threat-model.md) (STRIDE,
+  fronteras de confianza, riesgo residual).
+- Modelo de seguridad: [`docs/adr/ADR-007-security-model.md`](docs/adr/ADR-007-security-model.md)
+  (auth/RBAC, audit, diagnósticos).
+- Gobernanza: [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) (ruleset de `main`,
+  check `CI required`, revisión, release, ownership).
+- Contribución: [`CONTRIBUTING.md`](CONTRIBUTING.md) (Node 24.15+, setup
+  reproducible, conventional commits).
+- Operación: [`docs/runbooks/deploy.md`](docs/runbooks/deploy.md),
+  [`rollback.md`](docs/runbooks/rollback.md),
+  [`restore.md`](docs/runbooks/restore.md).
 
 ---
 
@@ -146,7 +160,8 @@ The GitHub Actions pipeline (`.github/workflows/pipeline.yml`) ensures broken co
 | **Promotion**         | `deploy-staging` → `deploy-prod`                 | solo con `vars.ENABLE_PROMOTION=='true'`; environments `staging`/`prod` con required reviewers, mismo `IMAGE_TAG`/digests, `ENVIRONMENT=staging\|prod` + `scripts/smoke.sh` post-deploy; prod no corre si staging falla (Fase 3B)                                          | —                                                          |
 | **Canary**            | `canary.yml` (schedule 30 min)                   | `curl --fail --max-time 10` externo a `vars.CANARY_URL` (`/health` + lecturas) + summary; sin secrets ni AWS; falla si la variable está vacía (Fase 3B)                                                                                                                    | —                                                          |
 | **Release**           | `release.yml` (`workflow_run`)                   | corre solo cuando `CI/CD Pipeline` termina con `conclusion=success`, `event=push` y `head_branch=main`; checkout del `head_sha` + `npm ci` + `semantic-release`; el summary imprime el tag creado y su imagen `sha-<built commit>` (sin retaggear ECR)                     | —                                                          |
-| **Required check**    | `ci-required`                                    | `needs` todos los jobs con `if: always()`; falla si algún `needs.*.result` es `failure` o `cancelled` (`skipped` cuenta como OK). Es el único check que debe exigir branch protection                                                                                      | —                                                          |
+| **Docs links**        | `docs-links`                                     | `bash scripts/check-docs-links.sh`: valida links relativos en todo `.md` tracked (sin red, sin DB, sin AWS); un link roto bloquea el PR (Fase 4)                                                                                                                           | —                                                          |
+| **Required check**    | `ci-required`                                    | `needs` todos los jobs (incluye `docs-links`) con `if: always()`; falla si algún `needs.*.result` es `failure` o `cancelled` (`skipped` cuenta como OK). Es el único check que debe exigir branch protection                                                               | —                                                          |
 
 **Resiliencia deploy:** `deployment_circuit_breaker { rollback=true }` (`compute/main.tf:375`) + `deploy.sh` lock+digest. Si `health` falla, ECS vuelve al TaskDef previo. **Seguridad:** `checkov -d terraform 0 high fails` + `npm audit --omit=dev 0 high` + headers `curl -I` `X-Content-Type-Options: nosniff` (`nginx.conf:36` Fase 8.4).
 
@@ -216,7 +231,7 @@ Coste prod full Fase 10: ALB $16 + NAT $32 + Redis $12 + SQS $0.40 + dashboard $
 
 - **Frontend:** `frontend/index.html` static dashboard (Fase 11.2) consume `GET /api/v1/...` → `http://localhost:80` (compose) o `http://<alb-dns>` prod. Health + `X-Cache` + BFF `GET /api/v1/ordenes/:id?include=producto` + `POST stock 409` + `/metrics` links. Run: `npx serve frontend -l 8080` o `docker compose --profile frontend up` → `http://localhost:8080`. El gateway arranca con el stack base → `GET /api/v1/bff/ordenes/:id` (`services/gateway/src/index.js:1`).
 - **BFF:** `GET /api/v1/ordenes/:id?include=producto` (`services/ordenes/src/routes/ordenes.js:152` Fase 11.1) agrega producto via `CircuitBreaker` + `GET /api/v1/bff/ordenes/:id` en `svc-gateway` (`nginx.conf:102` `nginx.local.conf:88`).
-- **Demo gif:** `docs/screenshots/demo.gif` 800x450 <5MB (peek/LICEcap) + screenshots refresh `aws_console.png`/`cloudwatch.png`/`github_actions.png` (Fase 11.3).
+- **Demo:** `docs/demo.md` es un guion de portfolio (no hay video publicado). Los screenshots de `docs/screenshots/` son capturas reales del entorno de desarrollo.
 - **API Contract:** `docs/openapi.yaml:1` OpenAPI 3.1 + `docs/api.md:1` BFF include, pagination, `AppError` (`ADR-006`).
 - **Release:** `semantic-release` + `CHANGELOG.md` + tags `v1.x` (`package.json` + `.releaserc.json` Fase 11.6). `release.yml` usa `workflow_run` sobre `CI/CD Pipeline`: no publica si el pipeline falló, se canceló, vino de un PR o no fue un push a `main`; el `workflow_dispatch` queda para reintentos manuales sobre el ref por defecto.
 - **Interview:** `docs/interview.md:1` 17 Q&A rollback, FinOps, decoupling, cache, BFF, WAF.
@@ -248,13 +263,13 @@ curl "http://localhost:80/api/v1/bff/ordenes/1" | jq
 
 ## Quick Start (Local Dev) — Fase 2: compose + monorepo
 
-Prerrequisitos: Node 24 (`.nvmrc:1`), Docker + compose v2.
+Prerrequisitos: Node 24.15+ (`.nvmrc:1`), Docker + compose v2.
 
 ```bash
 git clone <repo> && cd Pipeline_CI-CD_IaC
-cp .env.example .env        # opcional: ajusta POSTGRES_PASSWORD
-nvm use                     # o fnm/asdf — lee .tool-versions:1
-npm install                 # workspaces: root + services/* + packages/*
+nvm use                     # Node 24.15+ (o fnm/asdf — .tool-versions)
+make setup                  # npm ci + .env + postgres healthy + migrations
+make hooks                  # pre-commit (prettier/eslint/terraform fmt)
 
 # Opción A: Makefile (recomendado)
 make dev                    # docker compose up --build con hot-reload (override)
@@ -263,6 +278,9 @@ make dev                    # docker compose up --build con hot-reload (override
 # Opción C: directo
 docker compose up --build
 ```
+
+`make setup` deja el entorno reproducible sin levantar la app. Para el stack
+completo, `make dev`; para tests con DB, `make verify-full`.
 
 ## Infra Multi-Env (Fase 7)
 

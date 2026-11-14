@@ -1,17 +1,62 @@
 # SPDX-License-Identifier: MIT
-# CODEOWNERS — define reviewers for critical paths
+# CODEOWNERS — default reviewers for critical paths.
 # https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
+# Every change needs at least the maintainer of this repository. Domain rules
+# below are additive: GitHub requests a review from every matching owner.
 * @Francisco-cor
 
-# Infra crítica — requiere review infra
-/terraform/ @Francisco-cor
-/scripts/bootstrap-backend.* @Francisco-cor
+# ---------------------------------------------------------------------------
+# Suggested team handles
+# ---------------------------------------------------------------------------
+# This is a one-maintainer portfolio repository, so the only *valid* owner today
+# is @Francisco-cor. The handles below describe how a 3-5 person team would split
+# the same paths; they do not exist as GitHub teams yet.
+#
+# When an org team is created (Settings → Access → Teams → New team), replace
+# the matching `@Francisco-cor` rule with the team handle, e.g.:
+#   /services/productos/  @your-org/erp-catalogo
+#
+# GitHub silently ignores CODEOWNERS entries that point to unknown users or
+# teams, which would leave a path unprotected. Keep the fallback `*` rule and
+# only add a team after it exists in the organization.
+#
+# Suggested split:
+#   @org/erp-catalogo   → services/productos, services/stock (inventory domain)
+#   @org/erp-pedidos    → services/ordenes, services/gateway (orders + BFF)
+#   @org/erp-platform   → terraform, scripts, .github/workflows (infra/CI)
+#   @org/erp-docs       → docs, README.md, CONTRIBUTING.md
+#   @org/erp-frontend   → frontend, nginx (edge + static dashboard)
 
-# Pipeline
-/.github/workflows/ @Francisco-cor
+# ---------------------------------------------------------------------------
+# Domain ownership
+# ---------------------------------------------------------------------------
 
-# Servicios — opcional por dominio
+# Products + stock share the inventory data model and the stock invariant.
 /services/productos/ @Francisco-cor
-/services/ordenes/ @Francisco-cor
 /services/stock/ @Francisco-cor
+/migrations/ @Francisco-cor
+
+# Orders and the BFF that aggregates orders + products.
+/services/ordenes/ @Francisco-cor
+/services/gateway/ @Francisco-cor
+
+# Shared kernel is imported by every service: review it as a cross-cutting API.
+/packages/ @Francisco-cor
+
+# Infrastructure and automation.
+/terraform/ @Francisco-cor
+/scripts/ @Francisco-cor
+
+# Pipeline, templates, CODEOWNERS and rulesets.
+/.github/workflows/ @Francisco-cor
+/.github/ @Francisco-cor
+
+# Edge configuration and static dashboard.
+/nginx/ @Francisco-cor
+/frontend/ @Francisco-cor
+
+# Documentation and repository-wide policy.
+/docs/ @Francisco-cor
+/SECURITY.md @Francisco-cor
+/CONTRIBUTING.md @Francisco-cor

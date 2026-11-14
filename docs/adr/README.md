@@ -12,6 +12,7 @@
 | [ADR-004](ADR-004-scaling-strategy.md)              | Scaling strategy — FinOps $0 → Prod toggle (ALB, autoscaling, cache, queue)            | Accepted               | 2026-09-02 |
 | [ADR-005](ADR-005-monorepo-shared-kernel.md)        | Monorepo `npm workspaces` + `packages/shared` kernel                                   | Accepted               | 2026-09-02 |
 | [ADR-006](ADR-006-openapi-versioning.md)            | OpenAPI 3.1 + versionado `/api/v1` + paginación + `AppError`                           | Accepted               | 2026-09-02 |
+| [ADR-007](ADR-007-security-model.md)                | Security model — auth/RBAC, audit, diagnostics y fronteras de confianza                | Accepted               | 2026-11-13 |
 
 ## Cómo proponer un ADR
 

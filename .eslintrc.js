@@ -53,6 +53,12 @@ module.exports = {
       },
     },
     {
+      files: ['scripts/commitlint.js'],
+      rules: {
+        'no-console': 'off',
+      },
+    },
+    {
       files: ['scripts/e2e.sh'],
       rules: {
         'no-console': 'off',

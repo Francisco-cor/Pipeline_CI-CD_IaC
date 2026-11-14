@@ -1,20 +1,23 @@
 # Demo — ERP Pipeline (Fase 11.3)
 
-> 2m demo del flujo completo: compose up → frontend → API → BFF → cache → chaos.
-> Loom: `https://loom.com/share/erp-pipeline-demo` (placeholder — grabar con `make dev` + `frontend/`).
-> Gif: `docs/screenshots/demo.gif` (generar con `peek` o `ScreenToGif` 800x450, <5MB).
+> **Material de portfolio.** Este guion sirve para grabar una demo de 2 minutos;
+> no es documentación operativa. No hay video publicado: la URL de Loom que
+> existía era un placeholder y se eliminó. Los screenshots de
+> `docs/screenshots/` son capturas reales del entorno de desarrollo, no mocks.
+>
+> Flujo: compose up → frontend → API → BFF → cache → chaos.
 
 ## One-liner
 
 ```bash
 git clone https://github.com/Francisco-cor/Pipeline_CI-CD_IaC && cd Pipeline_CI-CD_IaC
-cp .env.example .env && nvm use && npm install
+nvm use && make setup
 docker compose up --build -d --wait && docker compose --profile frontend up -d --build
 open http://localhost:8080  # frontend
 open http://localhost:80/health  # nginx
 ```
 
-## Flujo 120s (para Loom)
+## Flujo 120s (guion para grabar)
 
 1. **0:00 Health** `curl http://localhost:80/health | jq` → nginx ok + `http://localhost:8080` frontend muestra 4 health verdes (60fps).
 2. **0:20 Productos cache** `curl -i http://localhost:80/api/v1/productos?limit=1 | grep X-Cache` → MISS, segunda → HIT; create producto via frontend → MISS again (invalidate `productos:list:*`).
@@ -26,19 +29,21 @@ open http://localhost:80/health  # nginx
 
 ## Screenshots (refresh Fase 11.3)
 
-| Archivo                                   | Que muestra                                                                      | Cómo generar                                       |
-| ----------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `docs/screenshots/aws_console.png`        | ECS cluster `erp-pipeline-dev-cluster` con 1 task running, 6 containers          | AWS Console → ECS → Clusters → screenshot 1280x720 |
-| `docs/screenshots/cloudwatch.png`         | Dashboard `erp-pipeline-dev-overview` 6 widgets + `filter level=error`           | CloudWatch → Dashboards → screenshot               |
-| `docs/screenshots/github_actions.png`     | Actions `pipeline.yml` verde `<6m` con 9 jobs                                    | GitHub → Actions → workflow run → screenshot       |
-| `docs/screenshots/json_productos_api.png` | `GET /api/v1/productos?limit=2` con `X-Total-Count` + `Link`                     | `curl                                              | jq` screenshot |
-| `docs/screenshots/json_ordenes_api.png`   | `GET /api/v1/ordenes/:id?include=producto` BFF `{data, producto, _bff}`          | `curl                                              | jq` screenshot |
-| `docs/screenshots/demo.gif`               | Flow frontend 800x450 <5MB: health → productos → orden BFF → stock 409 → metrics | `peek`/`LICEcap` 15s @10fps                        |
-| `frontend/`                               | Dashboard `http://localhost:8080` con cards productos/ordenes/stock + health     | browser screenshot 1280x720                        |
+| Archivo                                   | Que muestra                                                                  | Cómo generar                                       |
+| ----------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------- |
+| `docs/screenshots/aws_console.png`        | ECS cluster `erp-pipeline-dev-cluster` con 1 task running, 6 containers      | AWS Console → ECS → Clusters → screenshot 1280x720 |
+| `docs/screenshots/cloudwatch.png`         | Dashboard `erp-pipeline-dev-overview` 6 widgets + `filter level=error`       | CloudWatch → Dashboards → screenshot               |
+| `docs/screenshots/github_actions.png`     | Actions `pipeline.yml` verde `<6m` con 9 jobs                                | GitHub → Actions → workflow run → screenshot       |
+| `docs/screenshots/json_productos_api.png` | `GET /api/v1/productos?limit=2` con `X-Total-Count` + `Link`                 | `curl                                              | jq` screenshot |
+| `docs/screenshots/json_ordenes_api.png`   | `GET /api/v1/ordenes/:id?include=producto` BFF `{data, producto, _bff}`      | `curl                                              | jq` screenshot |
+| `frontend/`                               | Dashboard `http://localhost:8080` con cards productos/ordenes/stock + health | browser screenshot 1280x720                        |
 
-> Para portfolio sin AWS, basta `docker compose` + `frontend/` + `e2e.sh` verde. Los screenshots AWS pueden ser mocks con anotación “staging, toggles `enable_alb=false` FinOps”.
+> Para portfolio sin AWS, basta `docker compose` + `frontend/` + `e2e.sh` verde.
+> Los screenshots incluidos son capturas del entorno de desarrollo; si se agrega
+> uno nuevo, debe ser una captura real y anotar el entorno (`dev`, toggles
+> `enable_alb=false` FinOps). No se aceptan mocks sin etiquetar.
 
-## Comandos demo local (copiar en Loom descripción)
+## Comandos demo local (para la descripción del video)
 
 ```bash
 # 1. Up + seed
@@ -72,6 +77,7 @@ k6 run scripts/k6/resilience.js -e BASE_URL=http://localhost:80
 - [ ] `docker compose down -v && docker compose up --build -d --wait` <180s
 - [ ] `scripts/e2e.sh http://localhost:80` PASS
 - [ ] `frontend/` abre en 8080 sin CORS error (headers `X-Request-Id` visibles)
-- [ ] `demo.gif` <5MB, 800x450, muestra `X-Cache HIT` y `include=producto`
+- [ ] Si grabás un video/gif, mostrá `X-Cache HIT` y `include=producto` y
+      agregalo solo cuando exista (no linkees un archivo que todavía no está).
 
 Ver `docs/interview.md:1` para preguntas que el demo responde y `docs/openapi.yaml:1` para contrato.

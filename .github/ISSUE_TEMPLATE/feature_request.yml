@@ -1,0 +1,64 @@
+name: Feature request
+description: Proponer una mejora de producto, DX, infraestructura o documentación.
+title: '[feat] '
+labels: ['enhancement', 'triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de abrir el issue, revisá `docs/ARCHITECTURE.md` y los ADR en
+        `docs/adr/`: el proyecto prioriza cambios pequeños, con rollback y
+        coste explícito (FinOps).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema
+      description: Qué duele hoy. Evitá proponer la solución en esta sección.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Propuesta
+      description: Qué cambio proponés y qué alternativas consideraste.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área
+      options:
+        - Backend (services/*)
+        - Shared kernel (packages/*)
+        - Frontend
+        - Infraestructura / Terraform
+        - CI/CD
+        - Seguridad
+        - Documentación / DX
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impacto y riesgos
+      description: |
+        Coste esperado (FinOps), migración/rollback, cambios de contrato API,
+        impacto en seguridad o en el SLO. Si requiere un ADR, decilo.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: dod
+    attributes:
+      label: Checklist inicial
+      options:
+        - label: Revisé issues existentes y no es un duplicado.
+          required: true
+        - label: El cambio se puede entregar en un PR acotado (o lo dividí).
+          required: true
+        - label: Si toca seguridad, lo pensé con `docs/security/threat-model.md`.
+          required: false

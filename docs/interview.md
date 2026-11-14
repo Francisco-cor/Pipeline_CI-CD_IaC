@@ -1,7 +1,10 @@
 # Interview — ERP Pipeline (Fase 11.7)
 
-> 17 preguntas que un reviewer senior haría en 30m. Cada respuesta enlaza a código / ADR / runbook y métrica.
-> Usar en portfolio: leer `docs/interview.md` antes de demo `docs/demo.md:1`.
+> **Material de portfolio.** 17 preguntas que un reviewer senior haría en 30m.
+> Cada respuesta enlaza a código / ADR / runbook y métrica. No es documentación
+> operativa: para deploy/rollback usá `docs/runbooks/`.
+>
+> Usar en portfolio: leer este documento antes de la demo `docs/demo.md:1`.
 
 ---
 
@@ -11,7 +14,7 @@
 
 - `terraform/modules/compute/main.tf:254` `deployment_circuit_breaker { enable=true rollback=true }` + `health_check_grace_period_seconds 120` — ECS detecta task unhealthy post-`migrations SUCCESS` y vuelve al `TaskDef` previo sin script.
 - `scripts/deploy.sh:1` Fase 7.7 `flock` + `ecr describe-images` digest verify + `aws ecs register-task-definition` + `aws ecs update-service` + `aws ecs wait services-stable` + rollback detect (compara `failedTasks`). Si `wait` timeout, CI falla y `pipeline.yml:679` `deploy` job marca `failure` → Slack/SNS.
-- Manual: `IMAGE_TAG=sha-<prev> ./scripts/deploy.sh prod` o `terraform apply -var-file=environments/prod.tfvars` con `ignore_changes = [task_definition]` (`compute/main.tf:284`) permite rollback sin TF drift.
+- Manual: `ENVIRONMENT=prod IMAGE_TAG=sha-<prev> bash scripts/deploy.sh` o `terraform apply -var-file=environments/prod.tfvars` con `ignore_changes = [task_definition]` (`compute/main.tf:284`) permite rollback sin TF drift.
 - Métrica: `ServiceErrorCount>10/5m` alarma `observability.tf:49` → `docs/runbooks/alert.md:1` triage `<5m` → `health/details` pool + `logs Insights` `filter level=error` → rollback si `p95>500ms`.
 
 Ver `docs/runbooks/rollback.md:1` + `docs/runbooks/deploy.md:1`.
@@ -194,8 +197,8 @@ CI no corre chaos (long), pero `make verify` + `docker compose --wait` + `e2e` c
 **Demo `docs/demo.md:1` + `frontend/` + `README.md:145` Monitoring + `README.md:160` Scale + `README.md:190` Demo.**
 
 - `git clone && docker compose up --build -d --wait` <180s + `docker compose --profile frontend up` → `http://localhost:8080` dashboard Fase 11.2 muestra health pool, `X-Cache HIT`, BFF `include=producto`.
-- Badges `README.md:3` cobertura con objetivo de ratchet 80% + OpenAPI 3.1 + trivy + prettier + release + demo + pipeline verde `pipeline.yml:38` `<6m` concurrency+cache.
-- `docs/screenshots/demo.gif` 800x450 <5MB + `aws_console.png`/`cloudwatch.png` (dashboard 6 widgets) + `openapi.yaml` contract.
+- Badges `README.md:3` cobertura con objetivo de ratchet 80% + OpenAPI 3.1 + trivy + prettier + release + pipeline verde `pipeline.yml:38` `<6m` concurrency+cache.
+- `docs/screenshots/` capturas reales de `aws_console.png`/`cloudwatch.png`/`github_actions.png` + `openapi.yaml` contract (no hay video/gif publicado).
 - `ADR-001/002/004/005/006` trazabilidad FinOps/Monorepo/OpenAPI/Scale.
 - `CHANGELOG.md:1` semver + tags `v1.11.0` + `make verify` verde en máquina limpia (Fase 11.8).
 
@@ -213,4 +216,4 @@ Métrica Fase 11: `make verify` verde + `README` 2m convence senior.
 - **Multi-AZ** `multi_az prod?true:false` ya (`database/main.tf:104`) pero `desired_count 1` → `enable_autoscaling min 2` HA.
 - **Secret rotation lambda** `docs/security/rotation.md:40` manual `ssm put-parameter` + `taint random_password`; prod lambda rotation.
 
-Documentado en `PLAN_ELEVACION_11_FASES.md:10` gaps P1/P2 y `docs/interview.md` para entrevista honesta.
+Documentado en `docs/security/threat-model.md` (riesgos residuales), `docs/security/rotation.md:1` (gaps operativos) y `docs/interview.md` para entrevista honesta.

@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Seguridad — reporte privado
+    url: https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/security/advisories/new
+    about: Vulnerabilidades, secretos expuestos o problemas de auth. No abras un issue público.
+  - name: Runbooks operativos
+    url: https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/blob/main/docs/runbooks/deploy.md
+    about: Deploy, rollback, restore, drift y alertas. Leé esto antes de reportar un incidente.
+  - name: Guía de contribución
+    url: https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/blob/main/CONTRIBUTING.md
+    about: Setup local, Node 24.15+, conventional commits y verificación antes del PR.
+  - name: Arquitectura y decisiones
+    url: https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/blob/main/docs/ARCHITECTURE.md
+    about: Mapa del repo, ADR y modelo de amenazas.
