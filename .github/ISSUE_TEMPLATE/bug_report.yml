@@ -7,8 +7,9 @@ body:
     attributes:
       value: |
         Gracias por reportar. **No incluyas secretos, tokens ni datos de clientes.**
-        Para vulnerabilidades usá el canal privado de [SECURITY.md](../security/policy)
-        (GitHub Security Advisories), nunca un issue público.
+        Para vulnerabilidades usá el canal privado de
+        [Security Advisories](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/security/advisories/new),
+        nunca un issue público. Ver `SECURITY.md` en el repo.
 
   - type: textarea
     id: summary
