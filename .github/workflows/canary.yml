@@ -1,0 +1,99 @@
+# SPDX-License-Identifier: MIT
+# canary.yml — cheap external probe every 30 minutes.
+#
+# This is intentionally a plain `curl`: no checkout, no AWS credentials, no
+# secrets. It catches "the public endpoint is down / timing out / serving 5xx"
+# between deploys, from outside the VPC. It is NOT a replacement for CloudWatch
+# Synthetics (multi-step journeys, canaries inside the VPC, latency SLO
+# metrics); it is the last-resort, zero-cost signal.
+#
+# Requires the repository variable CANARY_URL (base URL, no trailing slash
+# needed; the job has no `environment:`, so environment-scoped variables are
+# not visible). Until the variable exists the job is skipped: a 48-times-a-day
+# red run would be pure noise. Set CANARY_URL to enable the probe.
+
+name: canary
+
+on:
+  schedule:
+    # GitHub may delay scheduled runs under load; 30 min is the minimum cadence
+    # that still gives four probes per two-hour window.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A slow probe must not overlap the next one.
+  group: canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: External canary
+    if: vars.CANARY_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require CANARY_URL
+        env:
+          CANARY_URL: ${{ vars.CANARY_URL }}
+        run: |
+          if [ -z "${CANARY_URL}" ]; then
+            echo "## Canary failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "vars.CANARY_URL is not set. Configure it in Settings → Secrets and variables → Actions → Variables." >> "$GITHUB_STEP_SUMMARY"
+            echo "ERROR: vars.CANARY_URL is empty — refusing to run a canary that checks nothing." >&2
+            exit 1
+          fi
+
+      - name: Probe public endpoints
+        env:
+          CANARY_URL: ${{ vars.CANARY_URL }}
+        run: |
+          set -euo pipefail
+
+          # Only unauthenticated endpoints: API reads require a Bearer token
+          # when AUTH_ENABLED=true (staging/prod). Health paths stay public so
+          # the probe measures availability without shipping a credential.
+          base="${CANARY_URL%/}"
+          paths=(
+            "/health"
+            "/api/v1/productos/health"
+            "/api/v1/ordenes/health"
+            "/api/v1/stock/health"
+          )
+
+          echo "## Canary — ${base}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Path | HTTP | Time (s) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ---- | ---- | -------- |" >> "$GITHUB_STEP_SUMMARY"
+
+          failed=0
+          for path in "${paths[@]}"; do
+            body="$(mktemp)"
+            # --fail makes 4xx/5xx a non-zero exit; --max-time bounds a hang.
+            result="$(curl --silent --show-error --fail --max-time 10 \
+              -o "${body}" -w '%{http_code} %{time_total}' "${base}${path}" 2>/dev/null)" || result="000 0"
+            code="${result%% *}"
+            elapsed="${result##* }"
+            rm -f "${body}"
+
+            echo "| ${path} | ${code} | ${elapsed} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "${path} -> ${code} (${elapsed}s)"
+
+            if [ "${code}" != "200" ]; then
+              failed=$((failed + 1))
+            fi
+          done
+
+          if [ "${failed}" -ne 0 ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**${failed} probe(s) failed.** Check the ECS service, target health and CloudWatch logs before the next scheduled run." >> "$GITHUB_STEP_SUMMARY"
+            echo "ERROR: ${failed} canary probe(s) failed." >&2
+            exit 1
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "All probes returned 200." >> "$GITHUB_STEP_SUMMARY"

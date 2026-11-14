@@ -9,6 +9,11 @@
 #
 # workflow_dispatch is kept for re-running a release by hand; in that case
 # there is no workflow_run payload and the default branch ref is used.
+#
+# The job summary prints the tag created (git describe --tags --abbrev=0) and
+# the image CI built for the same push (`sha-<built commit>`). ECR is not
+# retagged: semantic-release tags its own CHANGELOG commit, so the tag → image
+# mapping goes through the workflow run, not through git ancestry.
 
 name: release
 
@@ -57,10 +62,43 @@ jobs:
       # Lint/format already ran in the CI/CD Pipeline that triggered this run.
       - run: npm ci
 
+      # Snapshot before semantic-release so the summary can tell a new tag from
+      # the previous one, and can name the image CI actually built.
+      - name: Record pre-release state
+        id: pre
+        run: |
+          echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
 
-      - name: verify tag created
-        run: git tag --list 'v*' | tail -n 5; echo "release workflow done"
+      # ECR intentionally keeps the CI tag scheme: every image from this push
+      # is `sha-<built commit>`. semantic-release runs after CI and tags its own
+      # CHANGELOG commit, so vX.Y.Z → release commit is not 1:1 with the image
+      # digest. Do not retag ECR here: the safe association is the push/run id
+      # plus `sha-<built commit>` in the deployment history.
+      - name: Release tag summary
+        run: |
+          previous_tag="${{ steps.pre.outputs.tag }}"
+          built_sha="${{ steps.pre.outputs.commit }}"
+          current_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          release_sha="$(git rev-parse --short HEAD)"
+
+          {
+            echo "## Release"
+            echo ""
+            if [ -n "${current_tag}" ] && [ "${current_tag}" != "${previous_tag}" ]; then
+              echo "- new tag: \`${current_tag}\`"
+            elif [ -n "${current_tag}" ]; then
+              echo "- no new tag (no release-worthy commit); latest tag: \`${current_tag}\`"
+            else
+              echo "- no tag found"
+            fi
+            echo "- release commit: \`${release_sha}\`"
+            echo "- image tag: \`sha-${built_sha}\` (built by CI/CD Pipeline from the same push)"
+            echo "- the release tag may point to the CHANGELOG commit created by semantic-release, so map tag → image through the workflow run, not through git."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "release workflow done"

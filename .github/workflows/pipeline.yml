@@ -14,7 +14,9 @@
 # the GitHub repo secret named AWS_ROLE_ARN.
 #
 # Required GitHub secrets:
-#   AWS_ROLE_ARN — ARN of the IAM role created by Terraform (cicd.tf output)
+#   AWS_ROLE_ARN — ARN of the IAM role created by Terraform (cicd.tf output).
+#   Optional per-environment override (dev/staging/prod): GitHub resolves the
+#   environment secret first and falls back to the repository secret.
 #
 # Fase 6 mejoras:
 #   6.1 concurrency group ${workflow}-${ref} cancel-in-progress
@@ -25,6 +27,22 @@
 #   6.6 coverage artifact per service + job summaries
 #   6.7 paths-filter → build only changed services
 #   6.8 job summaries + trusted Terraform plan workflow (manual, main only)
+#
+# Fase 3B (delivery):
+#   - migrations job runs migrations/run.js twice on a postgres:15 service to
+#     prove checksum/idempotency before merge.
+#   - build pushes buildx SBOM + provenance attestations with every image.
+#   - deploy (dev) always runs; deploy-staging/deploy-prod are opt-in through
+#     vars.ENABLE_PROMOTION == 'true' and GitHub Environments staging/prod
+#     (required reviewers recommended).
+#   - Each promotion runs scripts/smoke.sh against vars.STAGING_URL/PROD_URL.
+#
+# Required repo variables for promotion:
+#   ENABLE_PROMOTION = 'true'   (otherwise staging/prod are skipped)
+#   STAGING_URL, PROD_URL       (base URLs for the post-deploy smoke)
+#   DEV_URL                     (optional, deployment history link for dev)
+#   SMOKE_TOKEN (secret)        (optional; enables protected read checks in smoke)
+# See docs/runbooks/deploy.md.
 # =============================================================================
 
 name: CI/CD Pipeline
@@ -246,6 +264,94 @@ jobs:
         run: |
           echo "## Migrations image" >> $GITHUB_STEP_SUMMARY
           echo "- built from context=. (root) without pushing" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Job 1b.2: Migration runner idempotency (PR only, Fase 3B)
+  # Runs the real runner twice against a fresh postgres:15. The first pass
+  # applies every migration and records its SHA-256 checksum; the second pass
+  # must skip all of them. That proves the checksum/idempotency contract that
+  # makes a retried ECS migration task safe.
+  # Gated on the `migrations` filter: the contract lives in run.js + sql/*, so
+  # a change to service code cannot affect it (the test matrix already runs the
+  # runner once when `code` changes, but never twice).
+  # ---------------------------------------------------------------------------
+  migrations:
+    name: Migrations
+    needs: [changes]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: erpdb
+          POSTGRES_USER: erpadmin
+          POSTGRES_PASSWORD: test_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://erpadmin:test_password@localhost:5432/erpdb
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: migrations/package-lock.json
+
+      - name: First run (apply schema)
+        working-directory: migrations
+        run: npm ci --silent && node run.js
+
+      - name: Second run (must skip every migration)
+        working-directory: migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! output=$(node run.js 2>&1); then
+            echo "$output"
+            echo "ERROR: second migrations run failed." >&2
+            exit 1
+          fi
+          echo "$output"
+
+          expected=$(find sql -maxdepth 1 -name '*.sql' | wc -l)
+          applied=$(grep -c '^Running migration:' <<< "$output" || true)
+          skipped=$(grep -c '^Skipping already applied:' <<< "$output" || true)
+          echo "expected=$expected applied=$applied skipped=$skipped"
+
+          if [ "$applied" -ne 0 ]; then
+            echo "ERROR: second run applied $applied migration(s); the runner is not idempotent." >&2
+            exit 1
+          fi
+          if [ "$skipped" -ne "$expected" ]; then
+            echo "ERROR: second run skipped $skipped of $expected migrations; expected all of them." >&2
+            exit 1
+          fi
+          if ! grep -q 'All migrations completed successfully.' <<< "$output"; then
+            echo "ERROR: second run did not report success." >&2
+            exit 1
+          fi
+          echo "Idempotency OK: $skipped migrations skipped on the second run."
+
+      - name: Migrations summary
+        if: always()
+        run: |
+          echo "## Migrations runner" >> $GITHUB_STEP_SUMMARY
+          echo "- postgres:15 service container" >> $GITHUB_STEP_SUMMARY
+          echo "- first run applied the schema, second run skipped every migration" >> $GITHUB_STEP_SUMMARY
+          echo "- checksums and idempotency validated" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
   # Job 1c: npm audit (Fase 8.7) — fail on HIGH in backend workspaces
@@ -607,6 +713,10 @@ jobs:
             ${{ steps.ecr.outputs.base }}/${{ env.PROJECT_NAME }}-productos:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # buildx attaches an SPDX SBOM and a SLSA provenance manifest to the
+          # pushed index. They are attestations, not extra tags.
+          sbom: true
+          provenance: true
           build-args: |
             GIT_SHA=${{ steps.tag.outputs.value }}
 
@@ -627,6 +737,8 @@ jobs:
             ${{ steps.ecr.outputs.base }}/${{ env.PROJECT_NAME }}-ordenes:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
           build-args: |
             GIT_SHA=${{ steps.tag.outputs.value }}
 
@@ -647,6 +759,8 @@ jobs:
             ${{ steps.ecr.outputs.base }}/${{ env.PROJECT_NAME }}-stock:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
           build-args: |
             GIT_SHA=${{ steps.tag.outputs.value }}
 
@@ -667,6 +781,8 @@ jobs:
             ${{ steps.ecr.outputs.base }}/${{ env.PROJECT_NAME }}-gateway:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
           build-args: |
             GIT_SHA=${{ steps.tag.outputs.value }}
 
@@ -687,6 +803,8 @@ jobs:
             ${{ steps.ecr.outputs.base }}/${{ env.PROJECT_NAME }}-nginx:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
           build-args: |
             GIT_SHA=${{ steps.tag.outputs.value }}
 
@@ -708,6 +826,8 @@ jobs:
             ${{ steps.ecr.outputs.base }}/${{ env.PROJECT_NAME }}-migrations:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
           build-args: |
             GIT_SHA=${{ steps.tag.outputs.value }}
 
@@ -726,6 +846,7 @@ jobs:
           echo "- nginx: ${{ needs.changes.outputs.nginx }}" >> $GITHUB_STEP_SUMMARY
           echo "- migrations: ${{ needs.changes.outputs.migrations }}" >> $GITHUB_STEP_SUMMARY
           echo "- cache: type=gha (buildx)" >> $GITHUB_STEP_SUMMARY
+          echo "- supply chain: SBOM + provenance attestations attached to each pushed image" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
   # Job 4b: Trivy image scan (Fase 6.3)
@@ -805,17 +926,25 @@ jobs:
           echo "- scanned for CRITICAL/HIGH (blocking gate)" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
-  # Job 5: Deploy
+  # Job 5: Deploy to dev
   # Register a new ECS task definition revision (with the just-pushed image tag)
   # and update the service. Waits for the deployment to stabilize.
   # If health checks fail after deployment, ECS auto-rolls back (circuit breaker).
+  #
+  # `environment: dev` records the deployment in GitHub (history + URL) and is
+  # the hook where a dev environment secret/reviewer could be added later.
   # ---------------------------------------------------------------------------
   deploy:
-    name: Deploy to ECS
+    name: Deploy to ECS (dev)
     needs: [build, trivy-image]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    environment:
+      name: dev
+      # Fall back to the run URL: GitHub rejects an empty environment URL in
+      # some configurations, and the deployment history still needs a target.
+      url: ${{ vars.DEV_URL != '' && vars.DEV_URL || format('https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) }}
     permissions:
       id-token: write
       contents: read
@@ -825,6 +954,9 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
+          # Environment secret wins over the repo secret when both exist, so
+          # dev/staging/prod can assume different roles later without editing
+          # the workflow.
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
@@ -842,9 +974,155 @@ jobs:
       - name: Deploy summary
         if: always()
         run: |
-          echo "## Deploy — ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Deploy dev — ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- cluster: ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-cluster" >> $GITHUB_STEP_SUMMARY
           echo "- image: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- services: ${{ needs.build.outputs.deploy_services }}" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Job 5b: Promote to staging (Fase 3B)
+  # Same image tag/digests that dev just validated. Disabled unless the repo
+  # variable ENABLE_PROMOTION is 'true'. The `staging` GitHub Environment can
+  # require reviewers, so the job pauses before it touches AWS.
+  #
+  # STAGING_URL is mandatory: a promotion without a post-deploy smoke target
+  # would be a blind deploy. The job fails before assuming the AWS role.
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    name: Deploy to ECS (staging)
+    needs: [build, trivy-image, deploy]
+    if: |
+      github.ref == 'refs/heads/main' && github.event_name == 'push' &&
+      vars.ENABLE_PROMOTION == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL != '' && vars.STAGING_URL || format('https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) }}
+    concurrency:
+      # Never run two promotions into the same environment in parallel.
+      group: deploy-staging
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Require STAGING_URL
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          if [ -z "${STAGING_URL}" ]; then
+            echo "ERROR: vars.STAGING_URL is not configured." >&2
+            echo "Set it in Settings → Secrets and variables → Actions → Variables (or on the staging Environment) before enabling promotion." >&2
+            exit 1
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to ECS (staging)
+        run: |
+          chmod +x scripts/deploy.sh
+          bash scripts/deploy.sh
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          DEPLOY_SERVICES: ${{ needs.build.outputs.deploy_services }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          PROJECT_NAME: ${{ env.PROJECT_NAME }}
+          ENVIRONMENT: staging
+
+      - name: Smoke staging
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+          # Optional: lets the smoke verify protected reads. Without it the
+          # script only checks public health endpoints.
+          SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
+        run: |
+          chmod +x scripts/smoke.sh
+          bash scripts/smoke.sh "${STAGING_URL}"
+
+      - name: Staging summary
+        if: always()
+        run: |
+          echo "## Deploy staging — ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- environment: staging (approval recorded in the deployment history)" >> $GITHUB_STEP_SUMMARY
+          echo "- image: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- smoke: ${{ vars.STAGING_URL }}" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Job 5c: Promote to prod (Fase 3B)
+  # Depends on deploy-staging, so a failed staging deploy or smoke test blocks
+  # prod by construction. Requires the `prod` GitHub Environment (reviewers).
+  # ---------------------------------------------------------------------------
+  deploy-prod:
+    name: Deploy to ECS (prod)
+    # build is listed again because the `needs` context only exposes direct
+    # dependencies; prod still waits for deploy-staging to succeed.
+    needs: [build, deploy-staging]
+    if: |
+      github.ref == 'refs/heads/main' && github.event_name == 'push' &&
+      vars.ENABLE_PROMOTION == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: prod
+      url: ${{ vars.PROD_URL != '' && vars.PROD_URL || format('https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) }}
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Require PROD_URL
+        env:
+          PROD_URL: ${{ vars.PROD_URL }}
+        run: |
+          if [ -z "${PROD_URL}" ]; then
+            echo "ERROR: vars.PROD_URL is not configured." >&2
+            echo "Set it in Settings → Secrets and variables → Actions → Variables (or on the prod Environment) before enabling promotion." >&2
+            exit 1
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to ECS (prod)
+        run: |
+          chmod +x scripts/deploy.sh
+          bash scripts/deploy.sh
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          DEPLOY_SERVICES: ${{ needs.build.outputs.deploy_services }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          PROJECT_NAME: ${{ env.PROJECT_NAME }}
+          ENVIRONMENT: prod
+
+      - name: Smoke prod
+        env:
+          PROD_URL: ${{ vars.PROD_URL }}
+          SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
+        run: |
+          chmod +x scripts/smoke.sh
+          bash scripts/smoke.sh "${PROD_URL}"
+
+      - name: Prod summary
+        if: always()
+        run: |
+          echo "## Deploy prod — ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- environment: prod (approval recorded in the deployment history)" >> $GITHUB_STEP_SUMMARY
+          echo "- image: ${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- smoke: ${{ vars.PROD_URL }}" >> $GITHUB_STEP_SUMMARY
 
   # ---------------------------------------------------------------------------
   # Job 6: Aggregate required check.
@@ -860,6 +1138,7 @@ jobs:
       - lint
       - format
       - migrations-build
+      - migrations
       - audit
       - gitleaks
       - trivy-fs
@@ -869,6 +1148,8 @@ jobs:
       - build
       - trivy-image
       - deploy
+      - deploy-staging
+      - deploy-prod
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

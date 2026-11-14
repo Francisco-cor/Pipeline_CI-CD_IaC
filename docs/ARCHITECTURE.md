@@ -7,7 +7,7 @@
 - **Runtime:** Node 24 + Express 5 + `pg` 8, PostgreSQL 15 en RDS `db.t3.micro`.
 - **Infra:** AWS ECS Fargate (task 0.5 vCPU/1GB), ECR, RDS, SSM Parameter Store, CloudWatch, SNS, ElastiCache/SQS opcionales (Fase 10).
 - **IaC:** Terraform 1.9+ modular (`terraform/modules/*`), backend S3+DynamoDB per env (`terraform/backend.tf:1-20` `encrypt=true` + `environments/backend-*.hcl:1` + `environments/*.tfvars:1`), `terraform/.tflint.hcl:1` + `checkov`, toggles `enable_nat_gateway/service_discovery/alb/autoscaling/redis/sqs` (Fase 7+10).
-- **CI/CD:** GitHub Actions OIDC (`terraform/bootstrap/cicd.tf:17-65`, `ADR-002`), `concurrency` + `paths-filter` + `lint --cache` + `gitleaks/trivy` + `tflint/checkov` + `buildx gha cache` + `coverage` (`pipeline.yml:18-711`, `release.yml:1`) — Fase 6 (<6m PR), `teardown.yml:15-60` prod guard (Fase 7.8), `semantic-release` (`package.json:12`, `.releaserc.json:1`) Fase 11.6.
+- **CI/CD:** GitHub Actions OIDC (`terraform/bootstrap/cicd.tf:17-65`, `ADR-002`), `concurrency` + `paths-filter` + `lint --cache` + `gitleaks/trivy` + `tflint/checkov` + `buildx gha cache` + `coverage` (`pipeline.yml:18`, `release.yml:1`) — Fase 6 (<6m PR), `teardown.yml:15-60` prod guard (Fase 7.8), `semantic-release` (`package.json:12`, `.releaserc.json:1`) Fase 11.6, promoción dev→staging→prod + SBOM/provenance + canary (Fase 3B).
 - **Proxy:** NGINX sidecar (`nginx/nginx.conf:1-96`) en misma task ECS (awsvpc, `localhost`) — + ALB opcional Fase 10.4 (`compute/main.tf:320`) + BFF `gateway:3004` (`nginx.conf:102` Fase 11.1).
 - **Cache/Queue:** Redis `ioredis` + memory fallback (`cache.js:1`), SQS `@aws-sdk/client-sqs` (`queue.js:1`) — Fase 10.5/10.6.
 - **Frontend/BFF:** `frontend/{index.html,app.js,styles.css}` static dashboard `http://localhost:8080` + `services/gateway/src/index.js:1` `svc-gateway` `GET /bff/ordenes/:id` (`X-Request-Id`, circuit, BFF aggregation `ordenes.js:152` Fase 11) + OpenAPI 3.1 `docs/openapi.yaml:1` + `docs/api.md:1`.
@@ -43,7 +43,7 @@
 │   ├── dashboard.tf          # 8 widgets (Fase 9.4 + 3A)
 │   ├── budgets.tf            # budget mensual + notificaciones SNS (Fase 3A)
 │   └── backend.tf            # S3 partial config encrypt=true (Fase 7.1 — supply via -backend-config)
-├── scripts/{build.sh,deploy.sh,chaos.sh,restore-drill.sh,k6/{smoke,resilience}.js,bootstrap-backend.{sh,ps1}}
+├── scripts/{build.sh,deploy.sh,smoke.sh,chaos.sh,restore-drill.sh,k6/{smoke,resilience}.js,bootstrap-backend.{sh,ps1}}
 ├── .releaserc.json            # Fase 11.6 semantic-release (commit-analyzer/changelog/github/git)
 ├── CHANGELOG.md               # Fase 11.6 Keep a Changelog conventional commits
 └── docs/{adr/{ADR-004..006},ARCHITECTURE.md,api.md,openapi.yaml,interview.md,demo.md,observability.md,runbooks/{deploy,rollback,drift,bootstrap,alert,restore}.md}
@@ -88,21 +88,25 @@ Ver `README.md:29-76` (mermaid) y `ADR-001` para coste $0 (public subnets sin NA
 - **Scale:** `ordenes.js:23` HTTP `PRODUCTOS_URL` + `CircuitBreaker` fallback DB (10.1) + outbox/relay SQS (10.6); `productos.js:15` `cache` Redis/memory `X-Cache` + invalidación `del productos:list:*` (10.5); `stock.js:42` validación stock insuficiente → `409 STOCK_CONFLICT`.
 - **Frontend/BFF:** `frontend/index.html` + `app.js` static dashboard `http://localhost:8080` (`--profile frontend`) consume `GET /api/v1/{productos,ordenes,stock}` + `GET /ordenes/:id?include=producto` + `GET /bff/ordenes/:id` + `X-Request-Id` + `409` handling; `nginx.conf:102` + `nginx.local.conf:88` BFF location `gateway:3004`, gateway incluido en el stack base.
 
-## CI/CD (Fase 6 + 7)
+## CI/CD (Fase 6 + 7 + 3B)
 
 - **Concurrency:** `pipeline.yml` `concurrency.group: workflow-ref` + `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` (Fase 6.1): solo se cancelan PRs obsoletos, un push a `main` encola para no cortar un deploy. `teardown.yml` usa `teardown-ref` (Fase 7.8).
 - **Changes:** `pipeline.yml` `dorny/paths-filter@v3` → `productos/ordenes/stock/gateway/nginx/migrations/any_service` + `code`/`e2e`; `audit/test/trivy-fs/terraform/e2e` se saltean si no cambió el código (Fase 6.7).
 - **Lint:** `pipeline.yml` un solo job root + `eslint --cache` sobre workspaces + `actions/cache .eslintcache` + summary (Fase 6.5).
 - **Format:** `pipeline.yml` `prettier --check` (Fase 6.5).
 - **Sec:** `pipeline.yml:182-235` `gitleaks/gitleaks-action@v2` + `aquasecurity/trivy-action fs` SARIF → code scanning (Fase 6.3).
+- **Migrations runner:** `pipeline.yml` job `migrations` (PR, solo si `migrations/**` o `.dockerignore` cambian) levanta `postgres:15` y corre `node run.js` **dos veces**: la primera aplica y guarda checksums SHA-256, la segunda debe skipear todos los archivos y reportar éxito (Fase 3B). Valida el contrato de idempotencia que hace seguro reintentar la task de migraciones.
 - **Test:** `pipeline.yml` matrix `postgres:15` (solo si `code` cambió), `jest --coverage`, `upload-artifact coverage-*`, summary + `needs: [lint,format]` (Fase 6.6).
 - **e2e:** `pipeline.yml` `docker compose -f docker-compose.yml up --build --wait` + `scripts/e2e.sh`, sin el override de desarrollo (Fase 4.8).
 - **Terraform PR:** `pipeline.yml` `fmt -check` → `init -backend=false` → `validate` → `tflint --init/--recursive --minimum-failure-severity=error` (`terraform/.tflint.hcl` `plugin aws 0.38.0`) → `checkov` SARIF, sin backend ni credenciales AWS para PRs no confiables (Fase 6.4). Los `upload-sarif` están guardados por `hashFiles(...) != ''`.
 - **Build:** `pipeline.yml` `if: push main && any_service` → `docker/setup-buildx-action@v3` + `docker/build-push-action@v6` per-service `if: productos==true` con `cache-from/to: type=gha,mode=max` → ECR `:sha-<short>` + `:latest` (Fase 6.2 + 6.7). `migrations` se construye con `context: .` porque su Dockerfile copia rutas root-relative (`migrations/*`, `certs/*`); el job PR `migrations-build` valida ese contexto con `push: false`.
-- **Trivy image:** `pipeline.yml:619-672` matrix post-build `trivy image CRITICAL,HIGH` SARIF con gate bloqueante (Fase 6.3).
-- **Deploy:** `pipeline.yml` `deploy` + `scripts/deploy.sh` hardened lock+digest+rollback detect (`flock`, `ecr describe-images`, `register`, `wait services-stable`, rollback check) solo si `build` OK (Fase 7.7).
-- **Release:** `release.yml` se dispara por `workflow_run` sobre `CI/CD Pipeline` (`types: [completed]`) y exige `conclusion=success`, `event=push`, `head_branch=main`; hace checkout de `head_sha` y corre `npm ci` + `semantic-release`. `workflow_dispatch` se mantiene para reintentos manuales (ref por defecto). Así un release nunca corre en paralelo con el CI que lo valida.
-- **Required check:** `ci-required` en `pipeline.yml` hace `needs` de todos los jobs y falla si algún `needs.*.result` es `failure`/`cancelled` (`skipped` OK). Branch protection debe exigir solo ese check.
+- **Supply chain:** cada uno de los 6 `docker/build-push-action` de `build` usa `sbom: true` + `provenance: true` (buildx nativo): attestations SPDX/SLSA adjuntas al índice OCI. Los tags siguen siendo `:sha-<short>` + `:latest`; ECR no es inmutable. Firma cosign keyless + verificación en `deploy.sh` queda como siguiente paso documentado en `docs/runbooks/deploy.md`.
+- **Trivy image:** `pipeline.yml` matrix post-build `trivy image CRITICAL,HIGH` SARIF con gate bloqueante (Fase 6.3).
+- **Deploy:** `pipeline.yml` `deploy` (environment `dev`) + `scripts/deploy.sh` hardened lock+digest+rollback detect (`flock`, `ecr describe-images`, `register`, `wait services-stable`, rollback check) solo si `build` OK (Fase 7.7).
+- **Promotion (Fase 3B):** `deploy-staging` (`needs: [build, trivy-image, deploy]`) y `deploy-prod` (`needs: [build, deploy-staging]`) solo con `github.ref=main`, `event=push` y `vars.ENABLE_PROMOTION == 'true'`; environments `staging`/`prod` con required reviewers recomendados, `AWS_ROLE_ARN` resuelto del environment con fallback al repo, mismo `IMAGE_TAG`/`DEPLOY_SERVICES` y `ENVIRONMENT=staging|prod` en `deploy.sh`. `scripts/smoke.sh <url>` corre después del deploy y falla en non-2xx/timeout; `STAGING_URL`/`PROD_URL` vacías abortan antes de asumir el rol. `concurrency` por entorno y prod bloqueado si staging falla.
+- **Canary (Fase 3B):** `.github/workflows/canary.yml` cada 30 min + `workflow_dispatch`, sin checkout/AWS/secrets; `curl --fail --max-time 10` a `vars.CANARY_URL` (`/health` + lecturas) y summary. Si `CANARY_URL` está vacía falla a propósito (un canary que skipea en silencio queda verde sin chequear nada). No reemplaza CloudWatch Synthetics.
+- **Release:** `release.yml` se dispara por `workflow_run` sobre `CI/CD Pipeline` (`types: [completed]`) y exige `conclusion=success`, `event=push`, `head_branch=main`; hace checkout de `head_sha` y corre `npm ci` + `semantic-release`. `workflow_dispatch` se mantiene para reintentos manuales (ref por defecto). Así un release nunca corre en paralelo con el CI que lo valida. El step final imprime el tag nuevo (`git describe --tags --abbrev=0`) y lo relaciona con la imagen `sha-<built commit>` en el summary; no retaggea ECR (semantic-release etiqueta su commit de CHANGELOG, no el commit construido).
+- **Required check:** `ci-required` en `pipeline.yml` hace `needs` de todos los jobs (incluidos `migrations`, `deploy-staging` y `deploy-prod`) y falla si algún `needs.*.result` es `failure`/`cancelled` (`skipped` OK). Branch protection debe exigir solo ese check.
 - **Teardown:** `teardown.yml` `schedule 23 UTC` (solo si `vars.AUTO_CLEANUP_ENABLED == 'true'`) + `workflow_dispatch` `confirm=destroy` + `environment=destroy` + prod guard `if: environment != prod` + `init -backend-config=environments/backend-*.hcl` + `destroy -var-file=environments/*.tfvars` (Fase 7.8). La identidad OIDC vive en `terraform/bootstrap/` con `prevent_destroy` y backend propio (`environments/backend-bootstrap-*.hcl`, `key=bootstrap.tfstate`); no se destruye (`docs/runbooks/bootstrap.md`).
 
 ## Observabilidad (Fase 9) + Scale metrics (Fase 10)
@@ -163,8 +167,8 @@ Ver `PLAN_ELEVACION_11_FASES.md` (gitignored) — 11 fases de scaffold → produ
 
 ## Runbooks & Portfolio (Fase 7.9 + 8.6 + 9.8 + 10.8 + 11)
 
-- `docs/runbooks/deploy.md:1` — deploy normal + `deploy.sh` verificación digest + lock
-- `docs/runbooks/rollback.md:1` — rollback automático circuit breaker vs manual `IMAGE_TAG=sha-prev`
+- `docs/runbooks/deploy.md:1` — flujo dev→staging→prod, environments/approvals, variables, smoke + `deploy.sh` digest/lock
+- `docs/runbooks/rollback.md:1` — rollback automático circuit breaker vs manual `IMAGE_TAG=sha-prev` + límite de migraciones
 - `docs/runbooks/drift.md:1` — drift `plan -var-file=environments/*.tfvars` + `ignore_changes` de `task_definition`
 - `docs/security/rotation.md:1` — OIDC thumbprint + SSM/RDS password rotation (Fase 8.6)
 - `docs/adr/ADR-003-waf.md:1` — WAF toggle cuando `enable_alb=true` (Fase 8.8)
