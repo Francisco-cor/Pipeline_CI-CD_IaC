@@ -16,6 +16,14 @@ github_repo = "Francisco-cor/Pipeline_CI-CD_IaC"
 # guard rejects empty values and example.com/org/net. SNS sends a subscription
 # confirmation email that must be clicked before alarm notifications arrive.
 alert_email = ""
+# Optional HTTPS paging/chat relay. Set after the on-call rotation has a
+# PagerDuty/Opsgenie (or SNS-to-Slack relay) endpoint that auto-confirms.
+alert_webhook_url = ""
+
+# FinOps — monthly budget and chargeback tags
+monthly_budget_usd = 300
+owner              = "platform-team"
+cost_center        = "engineering-prod"
 
 # Prod: seguridad y alta disponibilidad (ver ADR-001)
 enable_nat_gateway         = true # production boundary: ECS/RDS private + NAT per AZ

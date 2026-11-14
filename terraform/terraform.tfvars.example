@@ -32,6 +32,15 @@ github_repo = "your-github-username/Pipeline_CI-CD_IaC"
 # After terraform apply, confirm the subscription from your inbox.
 alert_email = ""
 
+# Optional HTTPS subscriber for paging/chat (PagerDuty, Opsgenie, SNS-to-Slack
+# relay). Must auto-confirm the SNS subscription; empty disables it.
+alert_webhook_url = ""
+
+# FinOps — monthly budget (USD) and tags applied to every resource.
+monthly_budget_usd = 50
+owner              = "platform-team"
+cost_center        = "engineering"
+
 # Optional production security controls. Keep disabled for the dev FinOps mode.
 enable_waf                    = false
 enable_customer_managed_kms   = false

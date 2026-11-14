@@ -12,6 +12,14 @@ app_port    = 3000
 
 github_repo = "Francisco-cor/Pipeline_CI-CD_IaC"
 alert_email = ""
+# Optional HTTPS paging/chat relay. Leave empty until a PagerDuty/Opsgenie or
+# SNS-to-Slack relay endpoint exists; it must auto-confirm the SNS handshake.
+alert_webhook_url = ""
+
+# FinOps — monthly budget and chargeback tags
+monthly_budget_usd = 150
+owner              = "platform-team"
+cost_center        = "engineering-staging"
 
 # Staging: protege menos que prod pero más que dev
 enable_nat_gateway         = false

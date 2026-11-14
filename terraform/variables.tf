@@ -52,10 +52,44 @@ variable "github_repo" {
   default     = ""
 }
 
+variable "owner" {
+  description = "Team or person accountable for the environment's resources. Applied as the Owner tag so cost reports and incident routing have an accountable owner."
+  type        = string
+  default     = "platform-team"
+}
+
+variable "cost_center" {
+  description = "Cost center charged for the environment's AWS spend. Applied as the CostCenter tag and used to reconcile Budgets against finance reports."
+  type        = string
+  default     = "engineering"
+}
+
+variable "monthly_budget_usd" {
+  description = "Monthly AWS budget in USD for this environment. Drives the aws_budgets_budget notifications at 50/80/100% of actual spend."
+  type        = number
+  default     = 50
+
+  validation {
+    condition     = var.monthly_budget_usd > 0
+    error_message = "monthly_budget_usd must be greater than zero."
+  }
+}
+
 variable "alert_email" {
   description = "Email address for CloudWatch alarm SNS notifications. Leave empty to create the SNS topic without a subscription (you can add one manually later). AWS sends a confirmation email that must be clicked before alerts are delivered."
   type        = string
   default     = ""
+}
+
+variable "alert_webhook_url" {
+  description = "Optional HTTPS endpoint (PagerDuty Events API v2, Opsgenie, or an SNS-to-Slack relay) subscribed to the alert topic. Must be https:// and capable of auto-confirming the SNS subscription; otherwise AWS leaves it pending and no notifications are delivered. Empty disables the subscription."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.alert_webhook_url == "" || can(regex("^https://[^\\s]+$", var.alert_webhook_url))
+    error_message = "alert_webhook_url must be empty or start with https:// and contain no whitespace."
+  }
 }
 
 # -----------------------------------------------------------------------------
