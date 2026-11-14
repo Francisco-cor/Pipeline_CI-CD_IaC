@@ -1,3 +1,42 @@
+# [1.13.0](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/compare/v1.12.0...v1.13.0) (2026-11-14)
+
+
+### Bug Fixes
+
+* **ci:** build migrations image from the repo root ([6fb326f](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/6fb326fcdaf88cf45aebb8385eb51a99cec7505b))
+* **ci:** keep smoke and canary on public health endpoints ([205b567](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/205b567489cad13991c68b8e52055573ffe7cec2))
+* **deps:** clear high/critical production CVEs ([682c99d](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/682c99d7ba6b2585b8c91be10cf68d50957c6935))
+* **dx:** keep DB-backed shared test out of test-unit ([0552d3d](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/0552d3dbdfb72c2d97e7d97bc21aa95d918fa988))
+* **ecs:** use loopback sidecar URLs and liveness healthchecks ([18dba48](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/18dba4839f999dba9f250f3c232ebc548fd07a2e))
+* **governance:** align ruleset merge methods and make pre-commit portable ([2ee05f1](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/2ee05f1580d151931ccbbbc92c30525e82228500))
+* **governance:** link bug reports to the private advisory channel ([a68e719](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/a68e7198a8da357b007299c255d1e4e1452a7f1d))
+* **migrations:** checksum applied files and resolve the duplicate 007 ([83e9f3d](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/83e9f3d00d8f8bc284ef8c1c6666d5197d63bdf3))
+* **orders:** reserve stock atomically and compute totals server-side ([13f2ca0](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/13f2ca0aaccced1ffd63968ce1b63b3cce0ce5ba))
+* **productos:** keep stock changes in the movement ledger ([6212ab9](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/6212ab958faefe7040793c63c71077b43808be9f))
+* **shared:** map database errors and bound validation/pagination ([9d23d0e](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/9d23d0e724098623445b2d3ea7d9fb4da3174e0d))
+* **terraform:** keep the Redis AUTH token out of ECS variables ([2bc8877](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/2bc8877c9773bf56e1117386412aea2d90ab02e9))
+* **test:** pin faker as a CommonJS dev dependency ([1699442](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/169944257a3b85449cd7485d48e0b2a7ee1a71da))
+
+
+### Features
+
+* **bootstrap:** protect OIDC identity and add per-env bootstrap backends ([d7f1b13](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/d7f1b130362230bedfb569422766720eccdb08ee))
+* **canary:** probe public endpoints every 30 minutes ([5fcae66](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/5fcae661ed3e01423596b143e46ca606745ad04f))
+* **ci:** validate migrations and promote through environments ([7186473](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/71864739551c3b25b9576a4789f9715aeba51828))
+* **dr:** add restore runbook and drill script ([b06a7a7](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/b06a7a70730009aeee2a5c02b2c3269ef0043e00))
+* **frontend:** complete accessibility, strict CSP and performance budget ([8e22efa](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/8e22efab683d24591baab2d397dd99e861794552))
+* **frontend:** validate API origin and ship security headers ([33cde4c](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/33cde4ce64efa5fddc12ac4cef816ac23110592f))
+* **governance:** add ownership, PR/issue templates and main ruleset ([a242c91](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/a242c9195312a131ca7088c3ace61140404da7ed))
+* **infra:** enforce database, Redis and SQS encryption guards ([3f14482](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/3f144825fb7826d8d587e32d3d229c1f69b8ae2e))
+* **observability:** document SLOs and extend the dashboard ([0174524](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/0174524a251ce0db2e502537e1ff473cffce797a))
+* **release:** summarize the created tag and its image ([bbb812a](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/bbb812a161a84e21e83fc6af35d64a9244cf26f0))
+* **runtime:** split liveness/readiness and coordinate shutdown ([18785b6](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/18785b6a9189801023607ff4a5008fef6b4768c5))
+* **services:** enforce auth, audit and diagnostics at the service edge ([5fa2dc5](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/5fa2dc5a02ca9b27802dce9a7842f4035b2b8fb7))
+* **shared:** add idempotency, health and lifecycle primitives ([4fdc0f3](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/4fdc0f33ac1a127507310d9a844d3c38b17651df))
+* **shared:** add JWT auth, RBAC, audit log and diagnostics gates ([9ee4e02](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/9ee4e02ac4372bf1ff81c67684a819572cbad5ef))
+* **stock:** make manual stock movements idempotent ([648c47b](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/648c47ba9d6833c01bd6cad176172ea07cdc8b99))
+* **terraform:** add SLO alarms, budgets and cost tags ([d7ec1e8](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/commit/d7ec1e834ca7b3dc35df3a580abe59073c1e6e81))
+
 # [1.12.0](https://github.com/Francisco-cor/Pipeline_CI-CD_IaC/compare/v1.11.0...v1.12.0) (2026-09-22)
 
 
